@@ -25,7 +25,7 @@ app.use('/static/*', serveStatic({ root: './public' }))
 app.post('/api/users', async (c) => {
   try {
     const body = await c.req.json()
-    const { name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity } = body
+    const { name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, email, phone } = body
 
     // Validation
     if (!name || !age || !height_cm || !weight_kg || !target_weight_kg) {
@@ -33,8 +33,8 @@ app.post('/api/users', async (c) => {
     }
 
     const result = await c.env.DB.prepare(`
-      INSERT INTO users (name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, email, phone)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       name,
       age,
@@ -44,7 +44,9 @@ app.post('/api/users', async (c) => {
       target_weight_kg,
       workouts_per_week || 3,
       current_level || 'beginner',
-      preferred_intensity || 'medium'
+      preferred_intensity || 'medium',
+      email || null,
+      phone || null
     ).run()
 
     // יצירת רשומת משקל התחלתית
@@ -993,6 +995,26 @@ app.get('/', (c) => {
                         </div>
                     </div>
                     
+                    <!-- שדות ליצירת קשר (אופציונליים) -->
+                    <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                        <h4 class="font-bold text-gray-800 mb-3">
+                            <i class="fas fa-envelope ml-2"></i>
+                            פרטי קשר (אופציונלי - לשליחת תכניות)
+                        </h4>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2">מייל</label>
+                                <input type="email" name="email" placeholder="example@email.com" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <p class="text-xs text-gray-500 mt-1">לשליחת תכניות אימון למייל</p>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2">טלפון (עם קוד מדינה)</label>
+                                <input type="tel" name="phone" placeholder="972501234567" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                                <p class="text-xs text-gray-500 mt-1">לשליחת תכניות ב-WhatsApp</p>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="flex gap-4">
                         <button type="submit" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition duration-300">
                             <i class="fas fa-check ml-2"></i>
@@ -1731,6 +1753,19 @@ app.get('/plans', (c) => {
                                 <i class="fas fa-times text-2xl"></i>
                             </button>
                         </div>
+                        
+                        <!-- Share Buttons -->
+                        <div class="flex gap-3 mb-6">
+                            <button onclick="sendPlanByEmail()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition duration-300 flex items-center justify-center gap-2">
+                                <i class="fas fa-envelope"></i>
+                                שלח למייל
+                            </button>
+                            <button onclick="sendPlanByWhatsApp()" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition duration-300 flex items-center justify-center gap-2">
+                                <i class="fab fa-whatsapp"></i>
+                                שלח ב-WhatsApp
+                            </button>
+                        </div>
+                        
                         <div id="planDetailsContent"></div>
                     </div>
                 </div>
@@ -1824,6 +1859,7 @@ app.get('/plans', (c) => {
             }
 
             async function viewPlanDetails(planId) {
+                currentPlanId = planId  // Save for sharing
                 try {
                     const response = await axios.get(\`/api/plans/\${planId}\`)
                     const plan = response.data.plan
@@ -1893,10 +1929,81 @@ app.get('/plans', (c) => {
 
             function closePlanDetails() {
                 document.getElementById('planDetailsModal').classList.add('hidden')
+                currentPlanId = null
             }
 
             function startWorkoutTimer(sessionId, planId) {
                 window.location.href = \`/workout-timer?user=\${userId}&session=\${sessionId}&plan=\${planId}\`;
+            }
+
+            let currentPlanId = null
+            
+            async function sendPlanByEmail() {
+                if (!currentPlanId) {
+                    showNotification('אנא בחר תכנית תחילה', 'error')
+                    return
+                }
+                
+                try {
+                    // Get user email
+                    const userResponse = await axios.get(\`/api/users/\${userId}\`)
+                    const userEmail = userResponse.data.email
+                    
+                    if (!userEmail) {
+                        showNotification('לא נמצא מייל במערכת. אנא הוסף מייל בהגדרות', 'warning')
+                        return
+                    }
+                    
+                    // Send email
+                    const response = await axios.post(\`/api/plans/\${currentPlanId}/email\`, {
+                        email: userEmail
+                    })
+                    
+                    if (response.data.success) {
+                        showNotification('התכנית נשלחה למייל בהצלחה! 📧', 'success')
+                    } else {
+                        showNotification(response.data.message || 'שליחת מייל תהיה זמינה בקרוב 🚧', 'info')
+                    }
+                } catch (error) {
+                    showNotification('שגיאה בשליחה: ' + error.message, 'error')
+                }
+            }
+            
+            async function sendPlanByWhatsApp() {
+                if (!currentPlanId) {
+                    showNotification('אנא בחר תכנית תחילה', 'error')
+                    return
+                }
+                
+                try {
+                    // Get user phone
+                    const userResponse = await axios.get(\`/api/users/\${userId}\`)
+                    const userPhone = userResponse.data.phone
+                    
+                    let phone = userPhone
+                    
+                    // If no phone in system, ask for it
+                    if (!phone) {
+                        phone = prompt('הזן מספר טלפון עם קוד מדינה (לדוגמה: 972501234567):')
+                        if (!phone) {
+                            showNotification('ביטול שליחה', 'info')
+                            return
+                        }
+                    }
+                    
+                    // Send via WhatsApp
+                    const response = await axios.post(\`/api/plans/\${currentPlanId}/share\`, {
+                        phone_number: phone,
+                        method: 'whatsapp'
+                    })
+                    
+                    if (response.data.success) {
+                        window.open(response.data.share_url, '_blank')
+                        showNotification('קישור WhatsApp נוצר בהצלחה! 📱', 'success')
+                    }
+                } catch (error) {
+                    showNotification('שגיאה בשליחה: ' + error.message, 'error')
+                }
             }
 
             loadPlans()
