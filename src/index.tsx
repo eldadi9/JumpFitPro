@@ -98,8 +98,9 @@ app.get('/api/users/:id', async (c) => {
     const bmi = calculateBMI(user.weight_kg as number, user.height_cm as number)
     const progress = calculateWeightProgress(user.weight_kg as number, user.target_weight_kg as number)
 
+    // החזרה עם כל הנתונים מפורסים
     return c.json({ 
-      user,
+      ...user,
       bmi,
       progress
     })
@@ -806,7 +807,10 @@ app.post('/api/calculate/calories', async (c) => {
  * קבלת רמות עצימות
  */
 app.get('/api/intensity-levels', async (c) => {
-  return c.json({ intensity_levels: INTENSITY_LEVELS })
+  return c.json({ 
+    levels: INTENSITY_LEVELS,
+    count: Object.keys(INTENSITY_LEVELS).length
+  })
 })
 
 // ========================================
@@ -958,6 +962,37 @@ app.get('/', (c) => {
                             <option value="advanced">מתקדם</option>
                         </select>
                     </div>
+                    
+                    <!-- תמונת פרופיל -->
+                    <div class="bg-gray-50 rounded-lg p-4 border-2 border-dashed border-gray-300">
+                        <label class="block text-gray-700 font-bold mb-3">
+                            <i class="fas fa-camera ml-2"></i>
+                            תמונת פרופיל (אופציונלי)
+                        </label>
+                        <div class="flex flex-col sm:flex-row gap-3">
+                            <input type="file" id="newUserProfileImage" accept="image/*" class="hidden" onchange="handleNewUserImageSelect(event)">
+                            <button type="button" onclick="document.getElementById('newUserProfileImage').click()" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                                <i class="fas fa-upload ml-2"></i>
+                                העלה תמונה
+                            </button>
+                            <button type="button" onclick="captureNewUserPhoto()" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                                <i class="fas fa-camera ml-2"></i>
+                                צלם תמונה
+                            </button>
+                            <button type="button" onclick="skipProfileImage()" class="flex-1 bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                                <i class="fas fa-arrow-left ml-2"></i>
+                                דלג
+                            </button>
+                        </div>
+                        <div id="newUserImagePreview" class="hidden mt-3">
+                            <img id="newUserImagePreviewImg" src="" alt="תצוגה מקדימה" class="w-24 h-24 rounded-full object-cover mx-auto border-4 border-indigo-500">
+                            <p class="text-center text-sm text-green-600 mt-2">
+                                <i class="fas fa-check-circle ml-1"></i>
+                                תמונה נבחרה
+                            </p>
+                        </div>
+                    </div>
+                    
                     <div class="flex gap-4">
                         <button type="submit" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition duration-300">
                             <i class="fas fa-check ml-2"></i>
@@ -971,8 +1006,49 @@ app.get('/', (c) => {
             </div>
         </main>
 
+        <!-- Notification Container -->
+        <div id="notificationContainer" class="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4"></div>
+        
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
+          // Notification System (מערכת התראות ללא חסימה)
+          function showNotification(message, type = 'info') {
+            const container = document.getElementById('notificationContainer')
+            const notif = document.createElement('div')
+            
+            const colors = {
+              success: 'bg-green-500',
+              error: 'bg-red-500',
+              warning: 'bg-yellow-500',
+              info: 'bg-blue-500'
+            }
+            
+            const icons = {
+              success: '✅',
+              error: '❌',
+              warning: '⚠️',
+              info: 'ℹ️'
+            }
+            
+            notif.className = colors[type] + ' text-white px-6 py-4 rounded-lg shadow-2xl mb-3 transform transition-all duration-500 ease-in-out'
+            notif.innerHTML = '<div class="flex items-center gap-3"><span class="text-2xl">' + icons[type] + '</span><span class="font-bold">' + message + '</span></div>'
+            
+            container.appendChild(notif)
+            
+            // Animation in
+            setTimeout(() => {
+              notif.style.opacity = '1'
+              notif.style.transform = 'translateY(0)'
+            }, 10)
+            
+            // Auto remove after 4 seconds
+            setTimeout(() => {
+              notif.style.opacity = '0'
+              notif.style.transform = 'translateY(-20px)'
+              setTimeout(() => notif.remove(), 500)
+            }, 4000)
+          }
+          
           // Show/Hide forms
           function showNewUserForm() {
             document.getElementById('newUserFormContainer').classList.remove('hidden')
@@ -1009,7 +1085,7 @@ app.get('/', (c) => {
               document.getElementById('userListContainer').classList.remove('hidden')
               window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
             } catch (error) {
-              alert('שגיאה בטעינת משתמשים')
+              showNotification('שגיאה בטעינת משתמשים', 'error')
             }
           }
 
@@ -1021,6 +1097,38 @@ app.get('/', (c) => {
             window.location.href = '/dashboard?user=' + userId
           }
 
+          // Handle profile image selection for new user
+          let newUserProfileImage = null;
+          
+          function handleNewUserImageSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                newUserProfileImage = e.target.result;
+                document.getElementById('newUserImagePreviewImg').src = e.target.result;
+                document.getElementById('newUserImagePreview').classList.remove('hidden');
+              };
+              reader.readAsDataURL(file);
+            }
+          }
+          
+          function captureNewUserPhoto() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.capture = 'camera';
+            input.onchange = handleNewUserImageSelect;
+            input.click();
+          }
+          
+          function skipProfileImage() {
+            // דילוג על תמונת פרופיל - נמשיך ליצירת החשבון בלי תמונה
+            newUserProfileImage = null;
+            document.getElementById('newUserImagePreview').classList.add('hidden');
+            showNotification('תמונת פרופיל לא תיווסף (ניתן להוסיף בהגדרות מאוחר יותר)', 'info');
+          }
+
           // Handle new user form submission
           document.getElementById('newUserForm').addEventListener('submit', async (e) => {
             e.preventDefault()
@@ -1028,13 +1136,29 @@ app.get('/', (c) => {
             const data = Object.fromEntries(formData)
             
             try {
+              // יצירת משתמש תחילה
               const response = await axios.post('/api/users', data)
               if (response.data.success) {
-                alert('חשבון נוצר בהצלחה!')
-                window.location.href = '/dashboard?user=' + response.data.user_id
+                const userId = response.data.user_id
+                
+                // אם יש תמונה, נעלה אותה
+                if (newUserProfileImage) {
+                  try {
+                    await axios.patch(\`/api/users/\${userId}/profile-image\`, {
+                      profile_image: newUserProfileImage
+                    })
+                  } catch (imgError) {
+                    console.error('שגיאה בהעלאת תמונה:', imgError)
+                  }
+                }
+                
+                showNotification('חשבון נוצר בהצלחה! 🎉', 'success')
+                setTimeout(() => {
+                  window.location.href = '/dashboard?user=' + userId
+                }, 1500)
               }
             } catch (error) {
-              alert('שגיאה ביצירת חשבון: ' + (error.response?.data?.error || error.message))
+              showNotification('שגיאה ביצירת חשבון: ' + (error.response?.data?.error || error.message), 'error')
             }
           })
 
@@ -1083,8 +1207,12 @@ app.get('/dashboard', (c) => {
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3">
                         <img src="/static/logo.svg" alt="JumpFitPro" class="h-12" />
-                        <div>
-                            <p id="userName" class="text-lg font-bold text-gray-700"></p>
+                        <div class="flex items-center gap-3">
+                            <img id="userProfileImage" src="" alt="Profile" class="h-10 w-10 rounded-full object-cover border-2 border-indigo-500 hidden" />
+                            <div>
+                                <p id="userName" class="text-lg font-bold text-gray-700"></p>
+                                <p id="userGender" class="text-sm text-gray-500"></p>
+                            </div>
                         </div>
                     </div>
                     <a href="/" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">
@@ -1281,20 +1409,73 @@ app.get('/dashboard', (c) => {
             </div>
         </main>
 
+        <!-- Notification Container -->
+        <div id="notificationContainer" class="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4"></div>
+
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
           const userId = ${userId};
+          
+          // Notification System (מערכת התראות ללא חסימה)
+          function showNotification(message, type = 'info') {
+            const container = document.getElementById('notificationContainer')
+            const notif = document.createElement('div')
+            
+            const colors = {
+              success: 'bg-green-500',
+              error: 'bg-red-500',
+              warning: 'bg-yellow-500',
+              info: 'bg-blue-500'
+            }
+            
+            const icons = {
+              success: '✅',
+              error: '❌',
+              warning: '⚠️',
+              info: 'ℹ️'
+            }
+            
+            notif.className = colors[type] + ' text-white px-6 py-4 rounded-lg shadow-2xl mb-3 transform transition-all duration-500 ease-in-out'
+            notif.innerHTML = '<div class="flex items-center gap-3"><span class="text-2xl">' + icons[type] + '</span><span class="font-bold">' + message + '</span></div>'
+            
+            container.appendChild(notif)
+            
+            // Animation in
+            setTimeout(() => {
+              notif.style.opacity = '1'
+              notif.style.transform = 'translateY(0)'
+            }, 10)
+            
+            // Auto remove after 4 seconds
+            setTimeout(() => {
+              notif.style.opacity = '0'
+              notif.style.transform = 'translateY(-20px)'
+              setTimeout(() => notif.remove(), 500)
+            }, 4000)
+          }
 
           // Load dashboard data
           async function loadDashboard() {
             try {
-              // Load user data
+              // Load user data (הנתונים מגיעים ישירות - לא מקוננים ב-user)
               const userResponse = await axios.get(\`/api/users/\${userId}\`)
               const userData = userResponse.data
               
-              document.getElementById('userName').textContent = userData.user.name
-              document.getElementById('currentWeight').textContent = userData.user.weight_kg + ' ק"ג'
-              document.getElementById('targetWeight').textContent = userData.user.target_weight_kg + ' ק"ג'
+              // הצגת שם + אימוג'י מין
+              const genderEmoji = userData.gender === 'female' ? '👩' : '👨'
+              const genderText = userData.gender === 'female' ? 'נקבה' : 'זכר'
+              document.getElementById('userName').textContent = \`\${genderEmoji} \${userData.name}\`
+              document.getElementById('userGender').textContent = genderText
+              
+              // הצגת תמונת פרופיל אם קיימת
+              if (userData.profile_image && userData.profile_image !== 'null') {
+                const profileImg = document.getElementById('userProfileImage')
+                profileImg.src = userData.profile_image
+                profileImg.classList.remove('hidden')
+              }
+              
+              document.getElementById('currentWeight').textContent = userData.weight_kg + ' ק"ג'
+              document.getElementById('targetWeight').textContent = userData.target_weight_kg + ' ק"ג'
               document.getElementById('remainingWeight').textContent = userData.progress.remaining_kg + ' ק"ג'
               document.getElementById('progressBar').style.width = userData.progress.progress_percentage + '%'
               document.getElementById('progressPercentage').textContent = userData.progress.progress_percentage + '% הושלם'
@@ -1340,7 +1521,8 @@ app.get('/dashboard', (c) => {
               loadCaloriesChart()
             } catch (error) {
               console.error('Error loading dashboard:', error)
-              alert('שגיאה בטעינת נתונים')
+              console.error('Error details:', error.response?.data || error.message)
+              showNotification('שגיאה בטעינת נתונים: ' + (error.response?.data?.error || error.message || 'שגיאה לא ידועה'), 'error')
             }
           }
 
@@ -1483,12 +1665,12 @@ app.get('/dashboard', (c) => {
             try {
               const response = await axios.post('/api/workouts', data)
               if (response.data.success) {
-                alert(\`אימון נשמר! שרפת \${response.data.calories_burned} קלוריות\`)
+                showNotification(\`אימון נשמר! שרפת \${parseFloat(response.data.calories_burned).toFixed(2)} קלוריות 🔥\`, 'success')
                 hideWorkoutForm()
                 loadDashboard()
               }
             } catch (error) {
-              alert('שגיאה בשמירת אימון: ' + (error.response?.data?.error || error.message))
+              showNotification('שגיאה בשמירת אימון: ' + (error.response?.data?.error || error.message), 'error')
             }
           })
 
@@ -1555,9 +1737,50 @@ app.get('/plans', (c) => {
             </div>
         </main>
 
+        <!-- Notification Container -->
+        <div id="notificationContainer" class="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4"></div>
+
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
             const userId = ${userId};
+            
+            // Notification System (מערכת התראות ללא חסימה)
+            function showNotification(message, type = 'info') {
+              const container = document.getElementById('notificationContainer')
+              const notif = document.createElement('div')
+              
+              const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                warning: 'bg-yellow-500',
+                info: 'bg-blue-500'
+              }
+              
+              const icons = {
+                success: '✅',
+                error: '❌',
+                warning: '⚠️',
+                info: 'ℹ️'
+              }
+              
+              notif.className = colors[type] + ' text-white px-6 py-4 rounded-lg shadow-2xl mb-3 transform transition-all duration-500 ease-in-out'
+              notif.innerHTML = '<div class="flex items-center gap-3"><span class="text-2xl">' + icons[type] + '</span><span class="font-bold">' + message + '</span></div>'
+              
+              container.appendChild(notif)
+              
+              // Animation in
+              setTimeout(() => {
+                notif.style.opacity = '1'
+                notif.style.transform = 'translateY(0)'
+              }, 10)
+              
+              // Auto remove after 4 seconds
+              setTimeout(() => {
+                notif.style.opacity = '0'
+                notif.style.transform = 'translateY(-20px)'
+                setTimeout(() => notif.remove(), 500)
+              }, 4000)
+            }
 
             async function loadPlans() {
                 try {
@@ -1596,7 +1819,7 @@ app.get('/plans', (c) => {
                     
                     document.getElementById('plansContainer').innerHTML = plansHtml
                 } catch (error) {
-                    alert('שגיאה בטעינת תכניות: ' + error.message)
+                    showNotification('שגיאה בטעינת תכניות: ' + error.message, 'error')
                 }
             }
 
@@ -1664,7 +1887,7 @@ app.get('/plans', (c) => {
                     document.getElementById('planDetailsContent').innerHTML = contentHtml
                     document.getElementById('planDetailsModal').classList.remove('hidden')
                 } catch (error) {
-                    alert('שגיאה בטעינת פרטי תכנית: ' + error.message)
+                    showNotification('שגיאה בטעינת פרטי תכנית: ' + error.message, 'error')
                 }
             }
 
@@ -1686,216 +1909,6 @@ app.get('/plans', (c) => {
 /**
  * מסך הגדרות משתמש
  */
-app.get('/settings', (c) => {
-  const userId = c.req.query('user')
-  
-  if (!userId) {
-    return c.redirect('/')
-  }
-
-  return c.html(`
-    <!DOCTYPE html>
-    <html lang="he" dir="rtl">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>הגדרות - JumpFitPro</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
-        </style>
-    </head>
-    <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
-        <header class="bg-white shadow-md">
-            <div class="max-w-7xl mx-auto px-4 py-4">
-                <div class="flex items-center justify-between">
-                    <img src="/static/logo.svg" alt="JumpFitPro" class="h-12" />
-                    <a href="/dashboard?user=${userId}" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">
-                        <i class="fas fa-arrow-right ml-2"></i>
-                        חזרה לדשבורד
-                    </a>
-                </div>
-            </div>
-        </header>
-
-        <main class="max-w-4xl mx-auto px-4 py-8">
-            <!-- User Profile Card -->
-            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">פרופיל משתמש</h2>
-                <form id="updateUserForm" class="space-y-4">
-                    <div>
-                        <label class="block text-gray-700 font-bold mb-2">שם מלא</label>
-                        <input type="text" name="name" id="name" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-gray-700 font-bold mb-2">גיל</label>
-                            <input type="number" name="age" id="age" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                        <div>
-                            <label class="block text-gray-700 font-bold mb-2">גובה (ס"מ)</label>
-                            <input type="number" name="height_cm" id="height_cm" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-gray-700 font-bold mb-2">משקל נוכחי (ק"ג)</label>
-                            <input type="number" step="0.1" name="weight_kg" id="weight_kg" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                        <div>
-                            <label class="block text-gray-700 font-bold mb-2">משקל יעד (ק"ג)</label>
-                            <input type="number" step="0.1" name="target_weight_kg" id="target_weight_kg" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 font-bold mb-2">כמות אימונים בשבוע</label>
-                        <select name="workouts_per_week" id="workouts_per_week" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                            <option value="3">3 אימונים בשבוע</option>
-                            <option value="4">4 אימונים בשבוע</option>
-                            <option value="5">5 אימונים בשבוע</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 font-bold mb-2">רמת כושר</label>
-                        <select name="current_level" id="current_level" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                            <option value="beginner">מתחילים</option>
-                            <option value="intermediate">בינוני</option>
-                            <option value="advanced">מתקדם</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 font-bold mb-2">עצימות מועדפת</label>
-                        <select name="preferred_intensity" id="preferred_intensity" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                            <option value="easy">קל</option>
-                            <option value="medium">בינוני</option>
-                            <option value="hard">קשה</option>
-                        </select>
-                    </div>
-                    <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition duration-300">
-                        <i class="fas fa-save ml-2"></i>
-                        שמור שינויים
-                    </button>
-                </form>
-            </div>
-
-            <!-- Weight Update Card -->
-            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">עדכון משקל</h2>
-                <form id="updateWeightForm" class="space-y-4">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-gray-700 font-bold mb-2">משקל חדש (ק"ג)</label>
-                            <input type="number" step="0.1" name="new_weight" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
-                        </div>
-                        <div>
-                            <label class="block text-gray-700 font-bold mb-2">תאריך מדידה</label>
-                            <input type="date" name="measurement_date" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500">
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 font-bold mb-2">הערות (אופציונלי)</label>
-                        <textarea name="notes" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"></textarea>
-                    </div>
-                    <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition duration-300">
-                        <i class="fas fa-weight ml-2"></i>
-                        עדכן משקל
-                    </button>
-                </form>
-            </div>
-
-            <!-- Weight History -->
-            <div class="bg-white rounded-xl shadow-lg p-6">
-                <h2 class="text-xl font-bold text-gray-800 mb-4">היסטוריית משקל</h2>
-                <div id="weightHistory" class="space-y-2"></div>
-            </div>
-        </main>
-
-        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
-        <script>
-            const userId = ${userId};
-
-            async function loadUserData() {
-                try {
-                    const response = await axios.get(\`/api/users/\${userId}\`)
-                    const user = response.data.user
-                    
-                    document.getElementById('name').value = user.name
-                    document.getElementById('age').value = user.age
-                    document.getElementById('height_cm').value = user.height_cm
-                    document.getElementById('weight_kg').value = user.weight_kg
-                    document.getElementById('target_weight_kg').value = user.target_weight_kg
-                    document.getElementById('workouts_per_week').value = user.workouts_per_week
-                    document.getElementById('current_level').value = user.current_level
-                    document.getElementById('preferred_intensity').value = user.preferred_intensity
-                } catch (error) {
-                    alert('שגיאה בטעינת נתונים')
-                }
-            }
-
-            async function loadWeightHistory() {
-                try {
-                    const response = await axios.get(\`/api/weight/user/\${userId}\`)
-                    const history = response.data.weight_history
-                    
-                    const historyHtml = history.map(record => \`
-                        <div class="border border-gray-200 rounded-lg p-3">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <span class="font-bold text-gray-800">\${record.weight_kg} ק"ג</span>
-                                    <span class="text-gray-600 mr-4">\${record.measurement_date}</span>
-                                </div>
-                                \${record.notes ? \`<span class="text-sm text-gray-500">\${record.notes}</span>\` : ''}
-                            </div>
-                        </div>
-                    \`).join('')
-                    
-                    document.getElementById('weightHistory').innerHTML = historyHtml || '<p class="text-gray-500 text-center">אין רשומות עדיין</p>'
-                } catch (error) {
-                    console.error('Error loading weight history:', error)
-                }
-            }
-
-            document.getElementById('updateUserForm').addEventListener('submit', async (e) => {
-                e.preventDefault()
-                const formData = new FormData(e.target)
-                const data = Object.fromEntries(formData)
-                
-                try {
-                    await axios.put(\`/api/users/\${userId}\`, data)
-                    alert('הפרופיל עודכן בהצלחה!')
-                    loadWeightHistory()
-                } catch (error) {
-                    alert('שגיאה בעדכון פרופיל: ' + (error.response?.data?.error || error.message))
-                }
-            })
-
-            document.getElementById('updateWeightForm').addEventListener('submit', async (e) => {
-                e.preventDefault()
-                const formData = new FormData(e.target)
-                const new_weight = formData.get('new_weight')
-                
-                try {
-                    await axios.put(\`/api/users/\${userId}\`, { weight_kg: new_weight })
-                    alert('המשקל עודכן בהצלחה!')
-                    e.target.reset()
-                    loadUserData()
-                    loadWeightHistory()
-                } catch (error) {
-                    alert('שגיאה בעדכון משקל: ' + (error.response?.data?.error || error.message))
-                }
-            })
-
-            // Set today's date as default
-            document.querySelector('input[name="measurement_date"]').valueAsDate = new Date()
-
-            loadUserData()
-            loadWeightHistory()
-        </script>
-    </body>
-    </html>
-  `)
-})
 
 /**
  * מסך טיימר אימון - Redirect to static HTML
@@ -1983,6 +1996,37 @@ app.get('/workout/:id', async (c) => {
             const userId = ${userId};
             const workoutId = ${workoutId};
             let workoutData = null;
+            
+            // Confirmation Dialog (דיאלוג אישור יפה)
+            function showConfirmDialog(message, onConfirm, onCancel) {
+              const overlay = document.createElement('div')
+              overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50'
+              
+              const dialog = document.createElement('div')
+              dialog.className = 'bg-white rounded-xl shadow-2xl p-8 max-w-md mx-4'
+              
+              dialog.innerHTML = '<div class="text-center"><div class="text-6xl mb-4">⚠️</div><p class="text-gray-800 text-xl font-bold mb-6 leading-relaxed">' + message + '</p><div class="flex gap-4"><button id="cancelBtn" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-lg transition text-lg">ביטול</button><button id="confirmBtn" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-4 px-6 rounded-lg transition text-lg">אישור</button></div></div>'
+              
+              overlay.appendChild(dialog)
+              document.body.appendChild(overlay)
+              
+              document.getElementById('confirmBtn').onclick = function() {
+                document.body.removeChild(overlay)
+                if (onConfirm) onConfirm()
+              }
+              
+              document.getElementById('cancelBtn').onclick = function() {
+                document.body.removeChild(overlay)
+                if (onCancel) onCancel()
+              }
+              
+              overlay.onclick = function(e) {
+                if (e.target === overlay) {
+                  document.body.removeChild(overlay)
+                  if (onCancel) onCancel()
+                }
+              }
+            }
 
             async function loadWorkoutDetails() {
                 try {
@@ -1991,7 +2035,7 @@ app.get('/workout/:id', async (c) => {
                     workoutData = response.data.workouts.find(w => w.id == workoutId);
                     
                     if (!workoutData) {
-                        alert('אימון לא נמצא');
+                        showNotification('אימון לא נמצא', 'error');
                         window.location.href = '/dashboard?user=' + userId;
                         return;
                     }
@@ -2004,7 +2048,7 @@ app.get('/workout/:id', async (c) => {
                     createCharts(workoutData, stats);
                 } catch (error) {
                     console.error('Error loading workout:', error);
-                    alert('שגיאה בטעינת פרטי אימון');
+                    showNotification('שגיאה בטעינת פרטי אימון', 'error');
                 }
             }
 
@@ -2193,10 +2237,10 @@ app.get('/workout/:id', async (c) => {
                     
                     try {
                         await axios.put(\`/api/workouts/\${workoutId}\`, data);
-                        alert('האימון עודכן בהצלחה!');
+                        showNotification('האימון עודכן בהצלחה', 'success');
                         window.location.reload();
                     } catch (error) {
-                        alert('שגיאה בעדכון אימון: ' + (error.response?.data?.error || error.message));
+                        showNotification('שגיאה בעדכון אימון: ' + (error.response?.data?.error || error.message), 'error');
                     }
                 });
             }
@@ -2207,32 +2251,34 @@ app.get('/workout/:id', async (c) => {
             }
 
             async function deleteWorkout() {
-                if (!confirm('האם אתה בטוח שברצונך למחוק אימון זה? פעולה זו אינה הפיכה.')) {
-                    return;
-                }
+                const userConfirmed = await new Promise(resolve => {
+                    showConfirmDialog('האם אתה בטוח שברצונך למחוק אימון זה? פעולה זו אינה הפיכה.', () => resolve(true), () => resolve(false));
+                });
+                if (!userConfirmed) return;
 
                 try {
                     await axios.delete(\`/api/workouts/\${workoutId}\`);
-                    alert('אימון נמחק בהצלחה');
+                    showNotification('אימון נמחק בהצלחה', 'success');
                     window.location.href = '/dashboard?user=' + userId;
                 } catch (error) {
-                    alert('שגיאה במחיקת אימון: ' + (error.response?.data?.error || error.message));
+                    showNotification('שגיאה במחיקת אימון: ' + (error.response?.data?.error || error.message), 'error');
                 }
             }
 
             async function duplicateWorkout() {
-                if (!confirm('האם ברצונך לשכפל אימון זה להיום?')) {
-                    return;
-                }
+                const userConfirmed = await new Promise(resolve => {
+                    showConfirmDialog('האם ברצונך לשכפל אימון זה להיום?', () => resolve(true), () => resolve(false));
+                });
+                if (!userConfirmed) return;
 
                 try {
                     const response = await axios.post(\`/api/workouts/\${workoutId}/duplicate\`);
                     if (response.data.success) {
-                        alert('אימון שוכפל בהצלחה! מעבר לדשבורד...');
+                        showNotification('אימון שוכפל בהצלחה', 'success');
                         window.location.href = '/dashboard?user=' + userId;
                     }
                 } catch (error) {
-                    alert('שגיאה בשכפול אימון: ' + (error.response?.data?.error || error.message));
+                    showNotification('שגיאה בשכפול אימון: ' + (error.response?.data?.error || error.message), 'error');
                 }
             }
 
@@ -2399,6 +2445,9 @@ app.get('/live-workout', (c) => {
             </div>
         </main>
 
+        <!-- Notification Container -->
+        <div id="notificationContainer" class="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4"></div>
+
         <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
         <script>
             const userId = ${userId};
@@ -2408,6 +2457,44 @@ app.get('/live-workout', (c) => {
             let timerInterval = null;
             let isPaused = false;
             let userWeight = 0;
+            
+            // Notification System (מערכת התראות ללא חסימה)
+            function showNotification(message, type = 'info') {
+              const container = document.getElementById('notificationContainer')
+              const notif = document.createElement('div')
+              
+              const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                warning: 'bg-yellow-500',
+                info: 'bg-blue-500'
+              }
+              
+              const icons = {
+                success: '✅',
+                error: '❌',
+                warning: '⚠️',
+                info: 'ℹ️'
+              }
+              
+              notif.className = colors[type] + ' text-white px-6 py-4 rounded-lg shadow-2xl mb-3 transform transition-all duration-500 ease-in-out'
+              notif.innerHTML = '<div class="flex items-center gap-3"><span class="text-2xl">' + icons[type] + '</span><span class="font-bold">' + message + '</span></div>'
+              
+              container.appendChild(notif)
+              
+              // Animation in
+              setTimeout(() => {
+                notif.style.opacity = '1'
+                notif.style.transform = 'translateY(0)'
+              }, 10)
+              
+              // Auto remove after 4 seconds
+              setTimeout(() => {
+                notif.style.opacity = '0'
+                notif.style.transform = 'translateY(-20px)'
+                setTimeout(() => notif.remove(), 500)
+              }, 4000)
+            }
 
             // Load user data
             async function loadUserData() {
@@ -2470,9 +2557,9 @@ app.get('/live-workout', (c) => {
             }
 
             function stopTimer() {
-                if (confirm('האם אתה בטוח שברצונך לעצור? התקדמותך תישמר.')) {
+                showConfirm('האם אתה בטוח שברצונך לעצור? התקדמותך תישמר.', function() {
                     completeWorkout();
-                }
+                });
             }
 
             function updateDisplay() {
@@ -2516,20 +2603,326 @@ app.get('/live-workout', (c) => {
                         notes: notes || 'אימון חי - JumpFitPro'
                     });
                     
-                    alert('אימון נשמר בהצלחה! 🎉');
+                    showNotification('אימון נשמר בהצלחה', 'success');
                     window.location.href = '/dashboard?user=' + userId;
                 } catch (error) {
-                    alert('שגיאה בשמירת אימון: ' + (error.response?.data?.error || error.message));
+                    showNotification('שגיאה בשמירת אימון: ' + (error.response?.data?.error || error.message), 'error');
                 }
             }
 
             function cancelWorkout() {
-                if (confirm('האם אתה בטוח? האימון לא יישמר.')) {
+                showConfirm('האם אתה בטוח? האימון לא יישמר.', function() {
                     window.location.href = '/dashboard?user=' + userId;
+                });
+            }
+            
+            // Confirmation Dialog System (מערכת אישורים יפה)
+            function showConfirm(message, onConfirm, onCancel) {
+              const overlay = document.createElement('div')
+              overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50'
+              
+              const dialog = document.createElement('div')
+              dialog.className = 'bg-white rounded-xl shadow-2xl p-8 max-w-md mx-4'
+              
+              dialog.innerHTML = '<div class="text-center"><div class="text-6xl mb-4">⚠️</div><p class="text-gray-800 text-xl font-bold mb-6 leading-relaxed">' + message + '</p><div class="flex gap-4"><button id="cancelBtn" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-lg transition text-lg">ביטול</button><button id="confirmBtn" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-4 px-6 rounded-lg transition text-lg">אישור</button></div></div>'
+              
+              overlay.appendChild(dialog)
+              document.body.appendChild(overlay)
+              
+              document.getElementById('confirmBtn').onclick = function() {
+                document.body.removeChild(overlay)
+                if (onConfirm) onConfirm()
+              }
+              
+              document.getElementById('cancelBtn').onclick = function() {
+                document.body.removeChild(overlay)
+                if (onCancel) onCancel()
+              }
+              
+              overlay.onclick = function(e) {
+                if (e.target === overlay) {
+                  document.body.removeChild(overlay)
+                  if (onCancel) onCancel()
                 }
+              }
             }
 
             loadUserData();
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+/**
+ * מסך הגדרות משתמש
+ */
+app.get('/settings', (c) => {
+  const userId = c.req.query('user')
+  
+  if (!userId) {
+    return c.redirect('/')
+  }
+
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="he" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>הגדרות - JumpFitPro</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+        </style>
+    </head>
+    <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+        <!-- Header -->
+        <header class="bg-white shadow-md">
+            <div class="max-w-7xl mx-auto px-4 py-4">
+                <div class="flex items-center justify-between">
+                    <img src="/static/logo.svg" alt="JumpFitPro" class="h-12" />
+                    <a href="/dashboard?user=${userId}" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">
+                        <i class="fas fa-arrow-right ml-2"></i>
+                        חזרה לדשבורד
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-4xl mx-auto px-4 py-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-8">
+                <i class="fas fa-cog ml-2"></i>
+                הגדרות
+            </h1>
+
+            <!-- Profile Image Section -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">
+                    <i class="fas fa-camera ml-2"></i>
+                    תמונת פרופיל
+                </h2>
+                <div class="flex items-center gap-6 mb-4">
+                    <img id="currentProfileImage" src="" alt="Profile" class="h-32 w-32 rounded-full object-cover border-4 border-indigo-500 hidden" />
+                    <div id="noImagePlaceholder" class="h-32 w-32 rounded-full bg-gray-200 flex items-center justify-center border-4 border-gray-300">
+                        <i class="fas fa-user text-6xl text-gray-400"></i>
+                    </div>
+                </div>
+                
+                <div class="space-y-4">
+                    <input type="file" id="imageInput" accept="image/*" class="hidden" />
+                    <div class="flex gap-4">
+                        <button onclick="document.getElementById('imageInput').click()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg transition">
+                            <i class="fas fa-image ml-2"></i>
+                            העלה מהגלריה
+                        </button>
+                        <button onclick="capturePhoto()" class="flex-1 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition">
+                            <i class="fas fa-camera ml-2"></i>
+                            צלם תמונה
+                        </button>
+                    </div>
+                    <button onclick="removeProfileImage()" class="w-full bg-red-500 hover:bg-red-600 text-white font-bold py-2 rounded-lg transition">
+                        <i class="fas fa-trash ml-2"></i>
+                        מחק תמונה
+                    </button>
+                </div>
+            </div>
+
+            <!-- User Actions -->
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">
+                    <i class="fas fa-tools ml-2"></i>
+                    פעולות
+                </h2>
+                <div class="space-y-3">
+                    <button onclick="deleteUserSoft()" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-lg transition">
+                        <i class="fas fa-user-times ml-2"></i>
+                        מחק משתמש (ניתן לשחזר)
+                    </button>
+                    <button onclick="deleteUserPermanent()" class="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg transition">
+                        <i class="fas fa-exclamation-triangle ml-2"></i>
+                        מחק משתמש לצמיתות (לא ניתן לשחזר)
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Notification Container -->
+        <div id="notificationContainer" class="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4"></div>
+
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <script>
+            const userId = ${userId};
+            
+            // Notification System (מערכת התראות ללא חסימה)
+            function showNotification(message, type = 'info') {
+              const container = document.getElementById('notificationContainer')
+              const notif = document.createElement('div')
+              
+              const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                warning: 'bg-yellow-500',
+                info: 'bg-blue-500'
+              }
+              
+              const icons = {
+                success: '✅',
+                error: '❌',
+                warning: '⚠️',
+                info: 'ℹ️'
+              }
+              
+              notif.className = colors[type] + ' text-white px-6 py-4 rounded-lg shadow-2xl mb-3 transform transition-all duration-500 ease-in-out'
+              notif.innerHTML = '<div class="flex items-center gap-3"><span class="text-2xl">' + icons[type] + '</span><span class="font-bold">' + message + '</span></div>'
+              
+              container.appendChild(notif)
+              
+              // Animation in
+              setTimeout(() => {
+                notif.style.opacity = '1'
+                notif.style.transform = 'translateY(0)'
+              }, 10)
+              
+              // Auto remove after 4 seconds
+              setTimeout(() => {
+                notif.style.opacity = '0'
+                notif.style.transform = 'translateY(-20px)'
+                setTimeout(() => notif.remove(), 500)
+              }, 4000)
+            }
+
+            // Load current profile image
+            async function loadProfileImage() {
+                try {
+                    const response = await axios.get(\`/api/users/\${userId}\`)
+                    // הנתונים מגיעים ישירות (לא מקוננים ב-user)
+                    if (response.data.profile_image && response.data.profile_image !== 'null') {
+                        document.getElementById('currentProfileImage').src = response.data.profile_image
+                        document.getElementById('currentProfileImage').classList.remove('hidden')
+                        document.getElementById('noImagePlaceholder').classList.add('hidden')
+                    }
+                } catch (error) {
+                    console.error('Error loading profile image:', error)
+                }
+            }
+            
+            // Confirmation Dialog (דיאלוג אישור יפה)
+            function showConfirmDialog(message, onConfirm, onCancel) {
+              const overlay = document.createElement('div')
+              overlay.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50'
+              
+              const dialog = document.createElement('div')
+              dialog.className = 'bg-white rounded-xl shadow-2xl p-8 max-w-md mx-4'
+              
+              dialog.innerHTML = '<div class="text-center"><div class="text-6xl mb-4">⚠️</div><p class="text-gray-800 text-xl font-bold mb-6 leading-relaxed whitespace-pre-line">' + message + '</p><div class="flex gap-4"><button id="cancelBtn" class="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-lg transition text-lg">ביטול</button><button id="confirmBtn" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-4 px-6 rounded-lg transition text-lg">אישור</button></div></div>'
+              
+              overlay.appendChild(dialog)
+              document.body.appendChild(overlay)
+              
+              document.getElementById('confirmBtn').onclick = function() {
+                document.body.removeChild(overlay)
+                if (onConfirm) onConfirm()
+              }
+              
+              document.getElementById('cancelBtn').onclick = function() {
+                document.body.removeChild(overlay)
+                if (onCancel) onCancel()
+              }
+              
+              overlay.onclick = function(e) {
+                if (e.target === overlay) {
+                  document.body.removeChild(overlay)
+                  if (onCancel) onCancel()
+                }
+              }
+            }
+
+            // Handle file upload
+            document.getElementById('imageInput').addEventListener('change', async (e) => {
+                const file = e.target.files[0]
+                if (!file) return
+
+                const reader = new FileReader()
+                reader.onload = async (event) => {
+                    const base64Image = event.target.result
+                    await uploadProfileImage(base64Image)
+                }
+                reader.readAsDataURL(file)
+            })
+
+            // Capture photo (opens camera)
+            async function capturePhoto() {
+                document.getElementById('imageInput').setAttribute('capture', 'camera')
+                document.getElementById('imageInput').click()
+            }
+
+            // Upload profile image
+            async function uploadProfileImage(base64Image) {
+                try {
+                    const response = await axios.patch(\`/api/users/\${userId}/profile-image\`, {
+                        profile_image: base64Image
+                    })
+                    showNotification('תמונת הפרופיל עודכנה בהצלחה', 'success')
+                    location.reload()
+                } catch (error) {
+                    showNotification('שגיאה בעדכון תמונה: ' + (error.response?.data?.error || error.message), 'error')
+                }
+            }
+
+            // Remove profile image
+            async function removeProfileImage() {
+                const userConfirmed = await new Promise(resolve => {
+                    showConfirmDialog('האם אתה בטוח שברצונך למחוק את תמונת הפרופיל?', () => resolve(true), () => resolve(false));
+                });
+                if (!userConfirmed) return;
+
+                try {
+                    await axios.patch(\`/api/users/\${userId}/profile-image\`, {
+                        profile_image: null
+                    })
+                    showNotification('תמונת הפרופיל נמחקה בהצלחה', 'success')
+                    location.reload()
+                } catch (error) {
+                    showNotification('שגיאה במחיקת תמונה: ' + (error.response?.data?.error || error.message), 'error')
+                }
+            }
+
+            // Delete user (soft)
+            async function deleteUserSoft() {
+                const userConfirmed = await new Promise(resolve => {
+                    showConfirmDialog('האם אתה בטוח שברצונך למחוק את המשתמש? (ניתן לשחזר)', () => resolve(true), () => resolve(false));
+                });
+                if (!userConfirmed) return;
+
+                try {
+                    await axios.delete(\`/api/users/\${userId}\`)
+                    showNotification('המשתמש נמחק בהצלחה', 'success')
+                    window.location.href = '/'
+                } catch (error) {
+                    showNotification('שגיאה במחיקת משתמש: ' + (error.response?.data?.error || error.message), 'error')
+                }
+            }
+
+            // Delete user (permanent)
+            async function deleteUserPermanent() {
+                const userConfirmed = await new Promise(resolve => {
+                    showConfirmDialog('⚠️ אזהרה! מחיקה זו לא ניתנת לשחזור.\n\nהאם אתה בטוח לחלוטין שברצונך למחוק את המשתמש וכל הנתונים שלו לצמיתות?', () => resolve(true), () => resolve(false));
+                });
+                if (!userConfirmed) return;
+
+                try {
+                    await axios.delete(\`/api/users/\${userId}/permanent\`)
+                    showNotification('המשתמש נמחק לצמיתות', 'success')
+                    window.location.href = '/'
+                } catch (error) {
+                    showNotification('שגיאה במחיקה מלאה: ' + (error.response?.data?.error || error.message), 'error')
+                }
+            }
+
+            loadProfileImage()
         </script>
     </body>
     </html>
