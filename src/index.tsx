@@ -1913,8 +1913,18 @@ app.get('/plans', (c) => {
 /**
  * מסך טיימר אימון - Redirect to static HTML
  */
-app.get('/workout-timer', (c) => {
-  return c.redirect('/static/workout-timer.html' + '?' + c.req.url.split('?')[1])
+app.get('/workout-timer', async (c) => {
+  const userId = c.req.query('user')
+  const sessionId = c.req.query('session')
+  const planId = c.req.query('plan')
+  
+  if (!userId || !sessionId || !planId) {
+    return c.redirect(`/dashboard?user=${userId || 1}`)
+  }
+
+  // Forward to static HTML file with proper URL
+  const url = new URL(c.req.url)
+  return c.redirect(`/static/workout-timer.html${url.search}`)
 })
 
 /**
