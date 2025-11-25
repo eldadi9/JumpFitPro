@@ -2281,19 +2281,20 @@ app.get('/create-profile', (c) => {
 
             <!-- Profile Form - בדיוק כמו בתמונות -->
             <div class="bg-white rounded-2xl shadow-xl p-8">
-                <form id="profileForm" class="space-y-5">
+                <form id="profileForm" class="space-y-5" novalidate>
                     
                     <!-- שם מלא -->
                     <div>
                         <label class="block text-gray-700 font-bold mb-2 text-right">שם מלא</label>
-                        <input type="text" id="name" required 
-                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                        <input type="text" id="name" 
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right"
+                            placeholder="הכנס שם מלא">
                     </div>
 
                     <!-- מין -->
                     <div>
                         <label class="block text-gray-700 font-bold mb-2 text-right">מין</label>
-                        <select id="gender" required 
+                        <select id="gender" 
                             class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right bg-white">
                             <option value="male">זכר</option>
                             <option value="female">נקבה</option>
@@ -2303,29 +2304,33 @@ app.get('/create-profile', (c) => {
                     <!-- גיל -->
                     <div>
                         <label class="block text-gray-700 font-bold mb-2 text-right">גיל</label>
-                        <input type="number" id="age" min="10" max="100" required
-                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                        <input type="number" id="age" min="10" max="100"
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right"
+                            placeholder="גיל">
                     </div>
 
                     <!-- גובה (ס"מ) -->
                     <div>
                         <label class="block text-gray-700 font-bold mb-2 text-right">גובה (ס"מ)</label>
-                        <input type="number" id="height_cm" min="100" max="250" required
-                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                        <input type="number" id="height_cm" min="100" max="250"
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right"
+                            placeholder="גובה בס\"מ">
                     </div>
 
                     <!-- משקל נוכחי (ק"ג) -->
                     <div>
                         <label class="block text-gray-700 font-bold mb-2 text-right">משקל נוכחי (ק"ג)</label>
-                        <input type="number" id="weight_kg" min="30" max="300" step="0.1" required
-                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                        <input type="number" id="weight_kg" min="30" max="300" step="0.1"
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right"
+                            placeholder="משקל נוכחי בק\"ג">
                     </div>
 
                     <!-- משקל יעד (ק"ג) -->
                     <div>
                         <label class="block text-gray-700 font-bold mb-2 text-right">משקל יעד (ק"ג)</label>
-                        <input type="number" id="target_weight_kg" min="30" max="300" step="0.1" required
-                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                        <input type="number" id="target_weight_kg" min="30" max="300" step="0.1"
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right"
+                            placeholder="משקל יעד בק\"ג">
                     </div>
 
                     <!-- כמות אימונים בשבוע -->
@@ -2403,10 +2408,10 @@ app.get('/create-profile', (c) => {
 
                     <!-- Submit Buttons -->
                     <div class="space-y-3 pt-4">
-                        <button type="submit" 
+                        <button type="submit" id="submitBtn"
                             class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 rounded-lg transition duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-2">
                             <i class="fas fa-check-circle"></i>
-                            צור חשבון והתחל
+                            <span id="submitBtnText">צור חשבון והתחל</span>
                         </button>
                         
                         <button type="button" onclick="window.history.back()" 
@@ -2451,6 +2456,15 @@ app.get('/create-profile', (c) => {
                     e.preventDefault()
                     e.stopPropagation()
                     console.log('Default action prevented and propagation stopped')
+                    
+                    // Disable submit button to prevent double submission
+                    const submitBtn = document.getElementById('submitBtn')
+                    const submitBtnText = document.getElementById('submitBtnText')
+                    if (submitBtn) {
+                        submitBtn.disabled = true
+                        submitBtn.classList.add('opacity-50', 'cursor-not-allowed')
+                        if (submitBtnText) submitBtnText.textContent = 'שומר נתונים...'
+                    }
 
                 // Validation
                 const name = document.getElementById('name').value.trim()
@@ -2461,28 +2475,43 @@ app.get('/create-profile', (c) => {
 
                 console.log('Form values:', { name, age, height, weight, targetWeight })
 
+                function resetSubmitButton() {
+                    const submitBtn = document.getElementById('submitBtn')
+                    const submitBtnText = document.getElementById('submitBtnText')
+                    if (submitBtn) {
+                        submitBtn.disabled = false
+                        submitBtn.classList.remove('opacity-50', 'cursor-not-allowed')
+                        if (submitBtnText) submitBtnText.textContent = 'צור חשבון והתחל'
+                    }
+                }
+
                 if (!name) {
                     showMessage('נא למלא שם מלא', 'error')
+                    resetSubmitButton()
                     return
                 }
 
                 if (isNaN(age) || age < 10 || age > 100) {
                     showMessage('גיל צריך להיות בין 10 ל-100', 'error')
+                    resetSubmitButton()
                     return
                 }
 
                 if (isNaN(height) || height < 100 || height > 250) {
                     showMessage('גובה צריך להיות בין 100 ל-250 ס"מ', 'error')
+                    resetSubmitButton()
                     return
                 }
 
                 if (isNaN(weight) || weight < 30 || weight > 300) {
                     showMessage('משקל צריך להיות בין 30 ל-300 ק"ג', 'error')
+                    resetSubmitButton()
                     return
                 }
 
                 if (isNaN(targetWeight) || targetWeight < 30 || targetWeight > 300) {
                     showMessage('משקל יעד צריך להיות בין 30 ל-300 ק"ג', 'error')
+                    resetSubmitButton()
                     return
                 }
 
@@ -2524,11 +2553,13 @@ app.get('/create-profile', (c) => {
                         const errMsg = response.data?.error || 'שגיאה ביצירת פרופיל'
                         console.error('Profile creation failed:', errMsg)
                         showMessage('❌ ' + errMsg, 'error')
+                        resetSubmitButton()
                     }
                 } catch (error) {
                     console.error('Profile creation error:', error)
                     const errMsg = error.response?.data?.error || error.message || 'שגיאה בחיבור לשרת'
                     showMessage('❌ ' + errMsg, 'error')
+                    resetSubmitButton()
                 }
             })
 
