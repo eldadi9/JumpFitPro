@@ -2450,6 +2450,17 @@ app.get('/create-profile', (c) => {
                     return
                 }
 
+                // Helper function to reset submit button state
+                function resetSubmitButton() {
+                    const submitBtn = document.getElementById('submitBtn')
+                    const submitBtnText = document.getElementById('submitBtnText')
+                    if (submitBtn) {
+                        submitBtn.disabled = false
+                        submitBtn.classList.remove('opacity-50', 'cursor-not-allowed')
+                        if (submitBtnText) submitBtnText.textContent = 'צור חשבון והתחל'
+                    }
+                }
+
                 console.log('Adding submit event listener...')
                 profileForm.addEventListener('submit', async (e) => {
                     console.log('=== Form Submit Event Triggered ===')
@@ -2466,104 +2477,94 @@ app.get('/create-profile', (c) => {
                         if (submitBtnText) submitBtnText.textContent = 'שומר נתונים...'
                     }
 
-                // Validation
-                const name = document.getElementById('name').value.trim()
-                const age = parseInt(document.getElementById('age').value)
-                const height = parseInt(document.getElementById('height_cm').value)
-                const weight = parseFloat(document.getElementById('weight_kg').value)
-                const targetWeight = parseFloat(document.getElementById('target_weight_kg').value)
+                    // Validation
+                    const name = document.getElementById('name').value.trim()
+                    const age = parseInt(document.getElementById('age').value)
+                    const height = parseInt(document.getElementById('height_cm').value)
+                    const weight = parseFloat(document.getElementById('weight_kg').value)
+                    const targetWeight = parseFloat(document.getElementById('target_weight_kg').value)
 
-                console.log('Form values:', { name, age, height, weight, targetWeight })
+                    console.log('Form values:', { name, age, height, weight, targetWeight })
 
-                function resetSubmitButton() {
-                    const submitBtn = document.getElementById('submitBtn')
-                    const submitBtnText = document.getElementById('submitBtnText')
-                    if (submitBtn) {
-                        submitBtn.disabled = false
-                        submitBtn.classList.remove('opacity-50', 'cursor-not-allowed')
-                        if (submitBtnText) submitBtnText.textContent = 'צור חשבון והתחל'
+                    if (!name) {
+                        showMessage('נא למלא שם מלא', 'error')
+                        resetSubmitButton()
+                        return
                     }
-                }
 
-                if (!name) {
-                    showMessage('נא למלא שם מלא', 'error')
-                    resetSubmitButton()
-                    return
-                }
+                    if (isNaN(age) || age < 10 || age > 100) {
+                        showMessage('גיל צריך להיות בין 10 ל-100', 'error')
+                        resetSubmitButton()
+                        return
+                    }
 
-                if (isNaN(age) || age < 10 || age > 100) {
-                    showMessage('גיל צריך להיות בין 10 ל-100', 'error')
-                    resetSubmitButton()
-                    return
-                }
+                    if (isNaN(height) || height < 100 || height > 250) {
+                        showMessage('גובה צריך להיות בין 100 ל-250 ס"מ', 'error')
+                        resetSubmitButton()
+                        return
+                    }
 
-                if (isNaN(height) || height < 100 || height > 250) {
-                    showMessage('גובה צריך להיות בין 100 ל-250 ס"מ', 'error')
-                    resetSubmitButton()
-                    return
-                }
+                    if (isNaN(weight) || weight < 30 || weight > 300) {
+                        showMessage('משקל צריך להיות בין 30 ל-300 ק"ג', 'error')
+                        resetSubmitButton()
+                        return
+                    }
 
-                if (isNaN(weight) || weight < 30 || weight > 300) {
-                    showMessage('משקל צריך להיות בין 30 ל-300 ק"ג', 'error')
-                    resetSubmitButton()
-                    return
-                }
+                    if (isNaN(targetWeight) || targetWeight < 30 || targetWeight > 300) {
+                        showMessage('משקל יעד צריך להיות בין 30 ל-300 ק"ג', 'error')
+                        resetSubmitButton()
+                        return
+                    }
 
-                if (isNaN(targetWeight) || targetWeight < 30 || targetWeight > 300) {
-                    showMessage('משקל יעד צריך להיות בין 30 ל-300 ק"ג', 'error')
-                    resetSubmitButton()
-                    return
-                }
+                    const formData = {
+                        user_id: parseInt(userId),
+                        name: name,
+                        age: age,
+                        gender: document.getElementById('gender').value,
+                        height_cm: height,
+                        weight_kg: weight,
+                        target_weight_kg: targetWeight,
+                        workouts_per_week: parseInt(document.getElementById('workouts_per_week').value),
+                        current_level: document.getElementById('current_level').value,
+                        preferred_intensity: 'medium',
+                        phone: document.getElementById('phone').value || null,
+                        profile_image: profileImageBase64
+                    }
 
-                const formData = {
-                    user_id: parseInt(userId),
-                    name: name,
-                    age: age,
-                    gender: document.getElementById('gender').value,
-                    height_cm: height,
-                    weight_kg: weight,
-                    target_weight_kg: targetWeight,
-                    workouts_per_week: parseInt(document.getElementById('workouts_per_week').value),
-                    current_level: document.getElementById('current_level').value,
-                    preferred_intensity: 'medium',
-                    phone: document.getElementById('phone').value || null,
-                    profile_image: profileImageBase64
-                }
+                    console.log('=== Sending Profile Data ===')
+                    console.log('Data:', formData)
+                    showMessage('שומר פרטים...', 'info')
 
-                console.log('=== Sending Profile Data ===')
-                console.log('Data:', formData)
-                showMessage('שומר פרטים...', 'info')
-
-                try {
-                    console.log('Making API call to /api/auth/complete-profile...')
-                    const response = await axios.post('/api/auth/complete-profile', formData)
-                    console.log('=== API Response Received ===')
-                    console.log('Response:', response)
-                    console.log('Response data:', response.data)
-                    
-                    if (response.data && response.data.success) {
-                        showMessage('✅ הפרופיל נוצר בהצלחה! מעביר לדשבורד...', 'success')
-                        localStorage.setItem('user_name', formData.name)
+                    try {
+                        console.log('Making API call to /api/auth/complete-profile...')
+                        const response = await axios.post('/api/auth/complete-profile', formData)
+                        console.log('=== API Response Received ===')
+                        console.log('Response:', response)
+                        console.log('Response data:', response.data)
                         
-                        setTimeout(() => {
-                            console.log('Redirecting to dashboard...')
-                            window.location.href = '/dashboard?user=' + userId
-                        }, 1500)
-                    } else {
-                        const errMsg = response.data?.error || 'שגיאה ביצירת פרופיל'
-                        console.error('Profile creation failed:', errMsg)
+                        if (response.data && response.data.success) {
+                            showMessage('✅ הפרופיל נוצר בהצלחה! מעביר לדשבורד...', 'success')
+                            localStorage.setItem('user_name', formData.name)
+                            
+                            setTimeout(() => {
+                                console.log('Redirecting to dashboard...')
+                                window.location.href = '/dashboard?user=' + userId
+                            }, 1500)
+                        } else {
+                            const errMsg = response.data?.error || 'שגיאה ביצירת פרופיל'
+                            console.error('Profile creation failed:', errMsg)
+                            showMessage('❌ ' + errMsg, 'error')
+                            resetSubmitButton()
+                        }
+                    } catch (error) {
+                        console.error('Profile creation error:', error)
+                        const errMsg = error.response?.data?.error || error.message || 'שגיאה בחיבור לשרת'
                         showMessage('❌ ' + errMsg, 'error')
                         resetSubmitButton()
                     }
-                } catch (error) {
-                    console.error('Profile creation error:', error)
-                    const errMsg = error.response?.data?.error || error.message || 'שגיאה בחיבור לשרת'
-                    showMessage('❌ ' + errMsg, 'error')
-                    resetSubmitButton()
-                }
-            })
+                })
 
-            function showMessage(text, type) {
+                function showMessage(text, type) {
                 const msg = document.getElementById('message')
                 msg.textContent = text
                 let className = 'mt-4 p-4 rounded-lg '
