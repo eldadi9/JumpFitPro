@@ -934,6 +934,112 @@ app.post('/api/auth/register', async (c) => {
 })
 
 /**
+ * הרשמה ראשונית מהירה (מייל + סיסמה בלבד)
+ */
+app.post('/api/auth/quick-register', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { email, password } = body
+    
+    if (!email || !password) {
+      return c.json({ error: 'חובה למלא מייל וסיסמה' }, 400)
+    }
+    
+    if (password.length < 6) {
+      return c.json({ error: 'הסיסמה חייבת להיות לפחות 6 תווים' }, 400)
+    }
+    
+    // Check if email already exists
+    const existingUser = await c.env.DB.prepare(`
+      SELECT id FROM users WHERE email = ?
+    `).bind(email).first()
+    
+    if (existingUser) {
+      return c.json({ error: 'המייל כבר רשום במערכת' }, 409)
+    }
+    
+    // Hash password
+    const passwordHash = btoa(password)
+    
+    // Create user with minimal data
+    const result = await c.env.DB.prepare(`
+      INSERT INTO users (
+        email, password_hash, name, age, height_cm, weight_kg, target_weight_kg, 
+        gender, workouts_per_week, current_level, role, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 1)
+    `).bind(
+      email, passwordHash, 'משתמש חדש', // שם זמני
+      25, 170, 70, 65, // ערכי ברירת מחדל
+      'male', 3, 'beginner'
+    ).run()
+    
+    const userId = result.meta.last_row_id
+    
+    // Create session
+    const sessionToken = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+    
+    await c.env.DB.prepare(`
+      INSERT INTO user_sessions (user_id, session_token, expires_at)
+      VALUES (?, ?, ?)
+    `).bind(userId, sessionToken, expiresAt.toISOString()).run()
+    
+    return c.json({ 
+      success: true, 
+      message: 'הרשמה הושלמה! עכשיו בואו נשלים את הפרופיל',
+      user_id: userId,
+      session_token: sessionToken,
+      needs_profile: true // דגל שמציין שצריך למלא פרופיל
+    })
+  } catch (error) {
+    return c.json({ error: 'שגיאה בהרשמה', details: String(error) }, 500)
+  }
+})
+
+/**
+ * השלמת פרופיל משתמש (אחרי הרשמה ראשונית)
+ */
+app.post('/api/auth/complete-profile', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { user_id, name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, phone } = body
+    
+    if (!user_id || !name) {
+      return c.json({ error: 'חסרים פרטים חובה' }, 400)
+    }
+    
+    // Update user profile
+    await c.env.DB.prepare(`
+      UPDATE users 
+      SET name = ?, age = ?, gender = ?, height_cm = ?, weight_kg = ?, 
+          target_weight_kg = ?, workouts_per_week = ?, current_level = ?,
+          preferred_intensity = ?, phone = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(
+      name, age || 25, gender || 'male', height_cm || 170, weight_kg || 70,
+      target_weight_kg || 65, workouts_per_week || 3, current_level || 'beginner',
+      preferred_intensity || 'medium', phone || null, user_id
+    ).run()
+    
+    // Add initial weight record
+    if (weight_kg) {
+      await c.env.DB.prepare(`
+        INSERT INTO weight_tracking (user_id, weight_kg, notes)
+        VALUES (?, ?, 'משקל התחלתי')
+      `).bind(user_id, weight_kg).run()
+    }
+    
+    return c.json({ 
+      success: true, 
+      message: 'הפרופיל הושלם בהצלחה!',
+      user_id: user_id
+    })
+  } catch (error) {
+    return c.json({ error: 'שגיאה בעדכון פרופיל', details: String(error) }, 500)
+  }
+})
+
+/**
  * התחברות משתמש
  */
 app.post('/api/auth/login', async (c) => {
@@ -1519,46 +1625,46 @@ app.get('/', (c) => {
                             <i class="fas fa-sign-in-alt ml-2"></i>
                             התחבר
                         </button>
-                        <p class="text-center text-gray-600 text-sm mt-4">
-                            או <a href="/legacy" class="text-indigo-600 hover:underline">השתמש במערכת הישנה</a>
-                        </p>
+                        <div class="text-center mt-4 space-y-2">
+                            <p class="text-sm">
+                                <button onclick="showForgotPassword()" class="text-indigo-600 hover:text-indigo-800 hover:underline font-semibold">
+                                    <i class="fas fa-key ml-1"></i>
+                                    שכחתי סיסמה
+                                </button>
+                            </p>
+                            <p class="text-gray-600 text-xs">
+                                או <a href="/legacy" class="text-indigo-600 hover:underline">השתמש במערכת הישנה</a>
+                            </p>
+                        </div>
                     </div>
 
-                    <!-- Register Form (Hidden) -->
+                    <!-- Register Form (Hidden) - שלב 1: רק מייל וסיסמה -->
                     <div id="registerForm" class="hidden space-y-4">
-                        <h2 class="text-2xl font-bold text-gray-800 mb-6">בואו נתחיל! 🚀</h2>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-gray-700 font-bold mb-2">שם מלא *</label>
-                                <input type="text" id="regName" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                            </div>
-                            <div>
-                                <label class="block text-gray-700 font-bold mb-2">גיל</label>
-                                <input type="number" id="regAge" value="25" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                            </div>
-                        </div>
+                        <h2 class="text-2xl font-bold text-gray-800 mb-6">הצטרף אלינו! 🚀</h2>
+                        <p class="text-gray-600 text-sm mb-4">צור חשבון חדש והתחל את המסע שלך</p>
+                        
                         <div>
                             <label class="block text-gray-700 font-bold mb-2">מייל *</label>
-                            <input type="email" id="regEmail" required placeholder="your@email.com" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            <input type="email" id="regEmail" required placeholder="your@email.com" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                         </div>
                         <div>
                             <label class="block text-gray-700 font-bold mb-2">סיסמה *</label>
-                            <input type="password" id="regPassword" required placeholder="לפחות 6 תווים" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            <input type="password" id="regPassword" required placeholder="לפחות 6 תווים" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            <p class="text-xs text-gray-500 mt-1">לפחות 6 תווים</p>
                         </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-gray-700 font-bold mb-2">משקל נוכחי (ק"ג)</label>
-                                <input type="number" id="regWeight" value="70" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                            </div>
-                            <div>
-                                <label class="block text-gray-700 font-bold mb-2">משקל יעד (ק"ג)</label>
-                                <input type="number" id="regTargetWeight" value="65" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
-                            </div>
+                        <div>
+                            <label class="block text-gray-700 font-bold mb-2">אימות סיסמה *</label>
+                            <input type="password" id="regPasswordConfirm" required placeholder="הקלד סיסמה שוב" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                         </div>
-                        <button onclick="handleRegister()" class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 rounded-lg transition duration-300 transform hover:scale-105">
+                        
+                        <button onclick="handleQuickRegister()" class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 rounded-lg transition duration-300 transform hover:scale-105 shadow-lg">
                             <i class="fas fa-user-plus ml-2"></i>
                             הרשם עכשיו
                         </button>
+                        
+                        <p class="text-center text-xs text-gray-500 mt-4">
+                            כבר רשום? <button onclick="showLoginTab()" class="text-indigo-600 hover:underline font-bold">התחבר כאן</button>
+                        </p>
                     </div>
 
                     <div id="message" class="mt-4 hidden p-4 rounded-lg"></div>
@@ -1619,6 +1725,47 @@ app.get('/', (c) => {
                 }
             }
 
+            // Quick registration - Step 1 (email + password only)
+            async function handleQuickRegister() {
+                const email = document.getElementById('regEmail').value
+                const password = document.getElementById('regPassword').value
+                const passwordConfirm = document.getElementById('regPasswordConfirm').value
+
+                if (!email || !password) {
+                    showMessage('חובה למלא מייל וסיסמה', 'error')
+                    return
+                }
+
+                if (password.length < 6) {
+                    showMessage('הסיסמה חייבת להיות לפחות 6 תווים', 'error')
+                    return
+                }
+
+                if (password !== passwordConfirm) {
+                    showMessage('הסיסמאות לא תואמות', 'error')
+                    return
+                }
+
+                try {
+                    const response = await axios.post('/api/auth/quick-register', { email, password })
+                    
+                    if (response.data.success) {
+                        localStorage.setItem('session_token', response.data.session_token)
+                        localStorage.setItem('user_id', response.data.user_id)
+                        
+                        showMessage('נרשמת בהצלחה! עכשיו בואו נשלים את הפרופיל...', 'success')
+                        
+                        // Redirect to profile creation page
+                        setTimeout(() => {
+                            window.location.href = '/create-profile'
+                        }, 1500)
+                    }
+                } catch (error) {
+                    showMessage(error.response?.data?.error || 'שגיאה בהרשמה', 'error')
+                }
+            }
+
+            // Old full registration function (keeping for legacy /api/auth/register)
             async function handleRegister() {
                 const name = document.getElementById('regName').value
                 const email = document.getElementById('regEmail').value
@@ -1664,6 +1811,13 @@ app.get('/', (c) => {
                 document.getElementById('welcomeModal').classList.add('hidden')
                 const userId = localStorage.getItem('user_id')
                 window.location.href = '/dashboard?user=' + userId
+            }
+
+            function showForgotPassword() {
+                const email = prompt('הזן את כתובת המייל שלך:')
+                if (email) {
+                    alert('תכונת "שכחתי סיסמה" תהיה זמינה בקרוב!\\n\\nלעת עתה, צור קשר עם התמיכה בכתובת: support@jumpfitpro.com\\n\\nאו נסה להירשם שוב עם מייל חדש.')
+                }
             }
 
             // Enter key support
@@ -2095,6 +2249,213 @@ app.get('/admin', (c) => {
 
             // Load on page load
             loadUsers()
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+/**
+ * עמוד השלמת פרופיל - אחרי הרשמה ראשונית
+ */
+app.get('/create-profile', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="he" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>יצירת פרופיל חדש - JumpFitPro</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    </head>
+    <body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen p-4">
+        <div class="max-w-2xl mx-auto py-8">
+            <!-- Logo and Header -->
+            <div class="text-center mb-8">
+                <div class="text-6xl mb-4">🪢</div>
+                <h1 class="text-3xl font-bold text-gray-800 mb-2">יצירת פרופיל חדש</h1>
+                <p class="text-gray-600">התחל את המסע שלך לירידה במשקל בחבל קפיצה! 💪</p>
+            </div>
+
+            <!-- Profile Form -->
+            <div class="bg-white rounded-2xl shadow-xl p-8">
+                <form id="profileForm" class="space-y-6">
+                    <!-- Personal Info -->
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
+                            <i class="fas fa-user text-indigo-600 ml-2"></i>
+                            פרטים אישיים
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">שם מלא *</label>
+                                <input type="text" id="name" required 
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                                    placeholder="שם מלא">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">מין *</label>
+                                <select id="gender" required 
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                                    <option value="male">זכר</option>
+                                    <option value="female">נקבה</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">גיל</label>
+                                <input type="number" id="age" min="10" max="100" value="25"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">גובה (ס"מ)</label>
+                                <input type="number" id="height_cm" min="100" max="250" value="170"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Weight Goals -->
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
+                            <i class="fas fa-weight text-green-600 ml-2"></i>
+                            יעדי משקל
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">משקל נוכחי (ק"ג) *</label>
+                                <input type="number" id="weight_kg" min="30" max="300" value="70" step="0.1" required
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">משקל יעד (ק"ג) *</label>
+                                <input type="number" id="target_weight_kg" min="30" max="300" value="65" step="0.1" required
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Training Settings -->
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
+                            <i class="fas fa-dumbbell text-orange-600 ml-2"></i>
+                            הגדרות אימון
+                        </h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">כמות אימונים בשבוע</label>
+                                <select id="workouts_per_week"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                                    <option value="3">3 אימונים בשבוע</option>
+                                    <option value="4">4 אימונים בשבוע</option>
+                                    <option value="5">5 אימונים בשבוע</option>
+                                    <option value="6">6 אימונים בשבוע</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 font-semibold mb-2">רמת כושר התחלתית</label>
+                                <select id="current_level"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                                    <option value="beginner">מתחילים</option>
+                                    <option value="intermediate">ביניים</option>
+                                    <option value="advanced">מתקדמים</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <label class="block text-gray-700 font-semibold mb-2">עוצמת אימון מועדפת</label>
+                            <select id="preferred_intensity"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                                <option value="low">נמוכה</option>
+                                <option value="medium" selected>בינונית</option>
+                                <option value="high">גבוהה</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Contact (Optional) -->
+                    <div>
+                        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
+                            <i class="fas fa-phone text-purple-600 ml-2"></i>
+                            פרטי קשר (אופציונלי)
+                        </h2>
+                        <div>
+                            <label class="block text-gray-700 font-semibold mb-2">טלפון (אופציונלי)</label>
+                            <input type="tel" id="phone" placeholder="05X-XXXXXXX"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            <p class="text-xs text-gray-500 mt-1">לשליחת תזכורות ועדכונים (אם תרצה)</p>
+                        </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <div class="pt-4">
+                        <button type="submit" 
+                            class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 rounded-lg transition duration-300 transform hover:scale-105 shadow-lg">
+                            <i class="fas fa-check-circle ml-2"></i>
+                            צור חשבון והתחל! 🚀
+                        </button>
+                    </div>
+
+                    <div id="message" class="hidden mt-4 p-4 rounded-lg"></div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            // Get user_id and session from localStorage
+            const userId = localStorage.getItem('user_id')
+            const sessionToken = localStorage.getItem('session_token')
+
+            if (!userId || !sessionToken) {
+                alert('אין מזהה משתמש. מעביר לעמוד הבית...')
+                window.location.href = '/'
+            }
+
+            document.getElementById('profileForm').addEventListener('submit', async (e) => {
+                e.preventDefault()
+
+                const formData = {
+                    user_id: parseInt(userId),
+                    name: document.getElementById('name').value,
+                    age: parseInt(document.getElementById('age').value),
+                    gender: document.getElementById('gender').value,
+                    height_cm: parseInt(document.getElementById('height_cm').value),
+                    weight_kg: parseFloat(document.getElementById('weight_kg').value),
+                    target_weight_kg: parseFloat(document.getElementById('target_weight_kg').value),
+                    workouts_per_week: parseInt(document.getElementById('workouts_per_week').value),
+                    current_level: document.getElementById('current_level').value,
+                    preferred_intensity: document.getElementById('preferred_intensity').value,
+                    phone: document.getElementById('phone').value || null
+                }
+
+                try {
+                    const response = await axios.post('/api/auth/complete-profile', formData)
+                    
+                    if (response.data.success) {
+                        showMessage('הפרופיל נוצר בהצלחה! מעביר לדשבורד...', 'success')
+                        localStorage.setItem('user_name', formData.name)
+                        
+                        // Show welcome modal
+                        setTimeout(() => {
+                            window.location.href = '/dashboard?user=' + userId
+                        }, 2000)
+                    } else {
+                        showMessage(response.data.error || 'שגיאה ביצירת פרופיל', 'error')
+                    }
+                } catch (error) {
+                    showMessage(error.response?.data?.error || 'שגיאה בשרת', 'error')
+                }
+            })
+
+            function showMessage(text, type) {
+                const msg = document.getElementById('message')
+                msg.textContent = text
+                msg.className = 'mt-4 p-4 rounded-lg ' + (type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')
+                msg.classList.remove('hidden')
+            }
         </script>
     </body>
     </html>
