@@ -1002,7 +1002,7 @@ app.post('/api/auth/quick-register', async (c) => {
 app.post('/api/auth/complete-profile', async (c) => {
   try {
     const body = await c.req.json()
-    const { user_id, name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, phone } = body
+    const { user_id, name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, phone, profile_image } = body
     
     if (!user_id || !name) {
       return c.json({ error: 'חסרים פרטים חובה' }, 400)
@@ -1013,12 +1013,12 @@ app.post('/api/auth/complete-profile', async (c) => {
       UPDATE users 
       SET name = ?, age = ?, gender = ?, height_cm = ?, weight_kg = ?, 
           target_weight_kg = ?, workouts_per_week = ?, current_level = ?,
-          preferred_intensity = ?, phone = ?, updated_at = CURRENT_TIMESTAMP
+          preferred_intensity = ?, phone = ?, profile_image = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).bind(
       name, age || 25, gender || 'male', height_cm || 170, weight_kg || 70,
       target_weight_kg || 65, workouts_per_week || 3, current_level || 'beginner',
-      preferred_intensity || 'medium', phone || null, user_id
+      preferred_intensity || 'medium', phone || null, profile_image || null, user_id
     ).run()
     
     // Add initial weight record
@@ -1578,8 +1578,11 @@ app.get('/', (c) => {
                 <!-- Left Side - Branding -->
                 <div class="bg-gradient-to-br from-indigo-600 to-purple-600 p-12 text-white md:w-1/2">
                     <div class="flex flex-col items-center justify-center h-full text-center">
-                        <div class="text-6xl mb-6">🪢</div>
-                        <h1 class="text-4xl font-bold mb-4">JumpFitPro</h1>
+                        <div class="flex items-center justify-center mb-6">
+                            <div class="text-6xl ml-4">🪢</div>
+                            <h1 class="text-5xl font-bold text-white">JumpFitPro</h1>
+                        </div>
+                        <div class="text-8xl my-6">🏃‍♂️💨</div>
                         <p class="text-lg mb-8">המסע שלך לירידה במשקל מתחיל כאן!</p>
                         <div class="space-y-3 text-right">
                             <div class="flex items-center gap-3">
@@ -2274,128 +2277,148 @@ app.get('/create-profile', (c) => {
         <div class="max-w-2xl mx-auto py-8">
             <!-- Logo and Header -->
             <div class="text-center mb-8">
-                <div class="text-6xl mb-4">🪢</div>
-                <h1 class="text-3xl font-bold text-gray-800 mb-2">יצירת פרופיל חדש</h1>
-                <p class="text-gray-600">התחל את המסע שלך לירידה במשקל בחבל קפיצה! 💪</p>
+                <div class="flex items-center justify-center mb-4">
+                    <div class="text-5xl ml-3">🪢</div>
+                    <h1 class="text-4xl font-bold text-gray-800">JumpFitPro</h1>
+                </div>
+                <h2 class="text-2xl font-bold text-indigo-600 mb-2">יצירת פרופיל חדש</h2>
+                <p class="text-gray-600">התחל את המסע שלך לירידה במשקל! 💪</p>
             </div>
 
-            <!-- Profile Form -->
+            <!-- Profile Form - בדיוק כמו בתמונות -->
             <div class="bg-white rounded-2xl shadow-xl p-8">
-                <form id="profileForm" class="space-y-6">
-                    <!-- Personal Info -->
+                <form id="profileForm" class="space-y-5">
+                    
+                    <!-- שם מלא -->
                     <div>
-                        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
-                            <i class="fas fa-user text-indigo-600 ml-2"></i>
-                            פרטים אישיים
-                        </h2>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-gray-700 font-semibold mb-2">שם מלא *</label>
-                                <input type="text" id="name" required 
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                                    placeholder="שם מלא">
-                            </div>
-                            <div>
-                                <label class="block text-gray-700 font-semibold mb-2">מין *</label>
-                                <select id="gender" required 
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                                    <option value="male">זכר</option>
-                                    <option value="female">נקבה</option>
-                                </select>
-                            </div>
+                        <label class="block text-gray-700 font-bold mb-2 text-right">שם מלא</label>
+                        <input type="text" id="name" required 
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                    </div>
+
+                    <!-- מין -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 text-right">מין</label>
+                        <select id="gender" required 
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right bg-white">
+                            <option value="">זכר</option>
+                            <option value="male">זכר</option>
+                            <option value="female">נקבה</option>
+                        </select>
+                    </div>
+
+                    <!-- גיל -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 text-right">גיל</label>
+                        <input type="number" id="age" min="10" max="100"
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                    </div>
+
+                    <!-- גובה (ס"מ) -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 text-right">גובה (ס"מ)</label>
+                        <input type="number" id="height_cm" min="100" max="250"
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                    </div>
+
+                    <!-- משקל נוכחי (ק"ג) -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 text-right">משקל נוכחי (ק"ג)</label>
+                        <input type="number" id="weight_kg" min="30" max="300" step="0.1" required
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                    </div>
+
+                    <!-- משקל יעד (ק"ג) -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 text-right">משקל יעד (ק"ג)</label>
+                        <input type="number" id="target_weight_kg" min="30" max="300" step="0.1" required
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                    </div>
+
+                    <!-- כמות אימונים בשבוע -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 text-right">כמות אימונים בשבוע</label>
+                        <select id="workouts_per_week"
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right bg-white">
+                            <option value="3">3 אימונים בשבוע</option>
+                            <option value="4">4 אימונים בשבוע</option>
+                            <option value="5">5 אימונים בשבוע</option>
+                            <option value="6">6 אימונים בשבוע</option>
+                        </select>
+                    </div>
+
+                    <!-- רמת כושר התחלתית -->
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2 text-right">רמת כושר התחלתית</label>
+                        <select id="current_level"
+                            class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right bg-white">
+                            <option value="beginner">מתחילים</option>
+                            <option value="intermediate">ביניים</option>
+                            <option value="advanced">מתקדמים</option>
+                        </select>
+                    </div>
+
+                    <!-- תמונת פרופיל (אופציונלי) -->
+                    <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 bg-gray-50">
+                        <h3 class="font-bold text-gray-700 mb-3 text-right">תמונת פרופיל (אופציונלי)</h3>
+                        
+                        <!-- Preview Image -->
+                        <div id="imagePreview" class="hidden mb-4 text-center">
+                            <img id="previewImg" src="" alt="תמונה" class="w-32 h-32 rounded-full mx-auto object-cover border-4 border-indigo-500">
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                            <div>
-                                <label class="block text-gray-700 font-semibold mb-2">גיל</label>
-                                <input type="number" id="age" min="10" max="100" value="25"
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                            </div>
-                            <div>
-                                <label class="block text-gray-700 font-semibold mb-2">גובה (ס"מ)</label>
-                                <input type="number" id="height_cm" min="100" max="250" value="170"
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                            </div>
+
+                        <!-- Upload Buttons -->
+                        <div class="space-y-3">
+                            <button type="button" onclick="document.getElementById('fileInput').click()" 
+                                class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition flex items-center justify-center gap-2">
+                                <i class="fas fa-upload"></i>
+                                העלה תמונה
+                            </button>
+                            
+                            <button type="button" onclick="capturePhoto()" 
+                                class="w-full bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-4 rounded-lg transition flex items-center justify-center gap-2">
+                                <i class="fas fa-camera"></i>
+                                צלם תמונה
+                            </button>
+
+                            <button type="button" onclick="clearImage()" 
+                                class="w-full bg-gray-400 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition flex items-center justify-center gap-2">
+                                <i class="fas fa-arrow-left"></i>
+                                דלג
+                            </button>
+                        </div>
+
+                        <input type="file" id="fileInput" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
+                    </div>
+
+                    <!-- פרטי קשר - לשליחת תכניות (אופציונלי) -->
+                    <div class="border-t-2 pt-5">
+                        <h3 class="font-bold text-gray-700 mb-1 text-right">
+                            <i class="fas fa-envelope ml-2"></i>
+                            פרטי קשר (אופציונלי) - לשליחת תכניות
+                        </h3>
+                        <p class="text-sm text-gray-500 mb-3 text-right">לשליחת תזכורות אימון לפי המייל</p>
+                        
+                        <!-- טלפון -->
+                        <div class="mb-3">
+                            <label class="block text-gray-700 font-bold mb-2 text-right">טלפון (עם קוד מדינה)</label>
+                            <input type="tel" id="phone" placeholder="972501234567"
+                                class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-right">
+                            <p class="text-xs text-gray-500 mt-1 text-right">לשליחת תזכורות ב-WhatsApp</p>
                         </div>
                     </div>
 
-                    <!-- Weight Goals -->
-                    <div>
-                        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
-                            <i class="fas fa-weight text-green-600 ml-2"></i>
-                            יעדי משקל
-                        </h2>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-gray-700 font-semibold mb-2">משקל נוכחי (ק"ג) *</label>
-                                <input type="number" id="weight_kg" min="30" max="300" value="70" step="0.1" required
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                            </div>
-                            <div>
-                                <label class="block text-gray-700 font-semibold mb-2">משקל יעד (ק"ג) *</label>
-                                <input type="number" id="target_weight_kg" min="30" max="300" value="65" step="0.1" required
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Training Settings -->
-                    <div>
-                        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
-                            <i class="fas fa-dumbbell text-orange-600 ml-2"></i>
-                            הגדרות אימון
-                        </h2>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-gray-700 font-semibold mb-2">כמות אימונים בשבוע</label>
-                                <select id="workouts_per_week"
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                                    <option value="3">3 אימונים בשבוע</option>
-                                    <option value="4">4 אימונים בשבוע</option>
-                                    <option value="5">5 אימונים בשבוע</option>
-                                    <option value="6">6 אימונים בשבוע</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-gray-700 font-semibold mb-2">רמת כושר התחלתית</label>
-                                <select id="current_level"
-                                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                                    <option value="beginner">מתחילים</option>
-                                    <option value="intermediate">ביניים</option>
-                                    <option value="advanced">מתקדמים</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mt-4">
-                            <label class="block text-gray-700 font-semibold mb-2">עוצמת אימון מועדפת</label>
-                            <select id="preferred_intensity"
-                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                                <option value="low">נמוכה</option>
-                                <option value="medium" selected>בינונית</option>
-                                <option value="high">גבוהה</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <!-- Contact (Optional) -->
-                    <div>
-                        <h2 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">
-                            <i class="fas fa-phone text-purple-600 ml-2"></i>
-                            פרטי קשר (אופציונלי)
-                        </h2>
-                        <div>
-                            <label class="block text-gray-700 font-semibold mb-2">טלפון (אופציונלי)</label>
-                            <input type="tel" id="phone" placeholder="05X-XXXXXXX"
-                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
-                            <p class="text-xs text-gray-500 mt-1">לשליחת תזכורות ועדכונים (אם תרצה)</p>
-                        </div>
-                    </div>
-
-                    <!-- Submit Button -->
-                    <div class="pt-4">
+                    <!-- Submit Buttons -->
+                    <div class="space-y-3 pt-4">
                         <button type="submit" 
-                            class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 rounded-lg transition duration-300 transform hover:scale-105 shadow-lg">
-                            <i class="fas fa-check-circle ml-2"></i>
-                            צור חשבון והתחל! 🚀
+                            class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 rounded-lg transition duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-2">
+                            <i class="fas fa-check-circle"></i>
+                            צור חשבון והתחל
+                        </button>
+                        
+                        <button type="button" onclick="window.history.back()" 
+                            class="w-full bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-3 rounded-lg transition flex items-center justify-center gap-2">
+                            ביטול
                         </button>
                     </div>
 
@@ -2427,8 +2450,9 @@ app.get('/create-profile', (c) => {
                     target_weight_kg: parseFloat(document.getElementById('target_weight_kg').value),
                     workouts_per_week: parseInt(document.getElementById('workouts_per_week').value),
                     current_level: document.getElementById('current_level').value,
-                    preferred_intensity: document.getElementById('preferred_intensity').value,
-                    phone: document.getElementById('phone').value || null
+                    preferred_intensity: 'medium', // Default value
+                    phone: document.getElementById('phone').value || null,
+                    profile_image: profileImageBase64 // תמונת פרופיל
                 }
 
                 try {
@@ -2455,6 +2479,36 @@ app.get('/create-profile', (c) => {
                 msg.textContent = text
                 msg.className = 'mt-4 p-4 rounded-lg ' + (type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')
                 msg.classList.remove('hidden')
+            }
+
+            // Profile Image Functions
+            let profileImageBase64 = null
+
+            function handleFileSelect(event) {
+                const file = event.target.files[0]
+                if (file) {
+                    const reader = new FileReader()
+                    reader.onload = (e) => {
+                        profileImageBase64 = e.target.result
+                        showImagePreview(e.target.result)
+                    }
+                    reader.readAsDataURL(file)
+                }
+            }
+
+            function capturePhoto() {
+                alert('פיצ\'ר צילום תמונה יהיה זמין בקרוב! לעת עתה השתמש ב"העלה תמונה"')
+            }
+
+            function showImagePreview(src) {
+                document.getElementById('previewImg').src = src
+                document.getElementById('imagePreview').classList.remove('hidden')
+            }
+
+            function clearImage() {
+                profileImageBase64 = null
+                document.getElementById('imagePreview').classList.add('hidden')
+                document.getElementById('fileInput').value = ''
             }
         </script>
     </body>
