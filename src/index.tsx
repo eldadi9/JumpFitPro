@@ -118,7 +118,7 @@ app.put('/api/users/:id', async (c) => {
   try {
     const userId = c.req.param('id')
     const body = await c.req.json()
-    const { name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity } = body
+    const { name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, email, phone } = body
 
     // אם המשקל השתנה, נוסיף רשומה לטבלת מעקב משקל
     if (weight_kg) {
@@ -143,9 +143,11 @@ app.put('/api/users/:id', async (c) => {
           workouts_per_week = COALESCE(?, workouts_per_week),
           current_level = COALESCE(?, current_level),
           preferred_intensity = COALESCE(?, preferred_intensity),
+          email = COALESCE(?, email),
+          phone = COALESCE(?, phone),
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).bind(name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, userId).run()
+    `).bind(name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, email, phone, userId).run()
 
     return c.json({ success: true, message: 'משתמש עודכן בהצלחה' })
   } catch (error) {
@@ -1360,7 +1362,7 @@ app.get('/dashboard', (c) => {
             <!-- Quick Actions -->
             <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
                 <h3 class="text-xl font-bold text-gray-800 mb-4">פעולות מהירות</h3>
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4">
                     <button onclick="window.location.href='/live-workout?user=${userId}'" class="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
                         <i class="fas fa-fire ml-2"></i>
                         אימון חי
@@ -1369,6 +1371,10 @@ app.get('/dashboard', (c) => {
                         <i class="fas fa-plus ml-2"></i>
                         הוסף אימון
                     </button>
+                    <button onclick="showCalorieCalculator()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
+                        <i class="fas fa-calculator ml-2"></i>
+                        חישוב קלוריות
+                    </button>
                     <button onclick="window.location.href='/plans?user=${userId}'" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
                         <i class="fas fa-list ml-2"></i>
                         תכניות
@@ -1376,6 +1382,58 @@ app.get('/dashboard', (c) => {
                     <button onclick="window.location.href='/settings?user=${userId}'" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
                         <i class="fas fa-cog ml-2"></i>
                         הגדרות
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Quick Calorie Calculator (Hidden) -->
+            <div id="calorieCalculatorContainer" class="hidden bg-white rounded-xl shadow-lg p-6 mb-8 border-4 border-purple-500">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">
+                    <i class="fas fa-calculator ml-2 text-purple-600"></i>
+                    מחשבון קלוריות מהיר
+                </h3>
+                <p class="text-sm text-gray-600 mb-4">חישוב מהיר של קלוריות לפי זמן ועצימות - ללא שמירה</p>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2">
+                            משך זמן: <span id="durationValue" class="text-purple-600">30</span> דקות
+                        </label>
+                        <input type="range" id="durationSlider" min="1" max="60" value="30" 
+                               class="w-full h-3 bg-purple-200 rounded-lg appearance-none cursor-pointer"
+                               oninput="updateCalorieEstimate()">
+                        <div class="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>1 דקה</span>
+                            <span>60 דקות</span>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-gray-700 font-bold mb-2">עצימות:</label>
+                        <div class="grid grid-cols-3 gap-3">
+                            <button type="button" id="intensityLight" onclick="selectIntensity('light')" 
+                                    class="intensity-btn bg-green-100 hover:bg-green-200 text-green-800 font-bold py-3 rounded-lg border-2 border-transparent transition">
+                                😌 קל
+                            </button>
+                            <button type="button" id="intensityMedium" onclick="selectIntensity('medium')" 
+                                    class="intensity-btn bg-yellow-100 hover:bg-yellow-200 text-yellow-800 font-bold py-3 rounded-lg border-4 border-yellow-500 transition">
+                                🔥 בינוני
+                            </button>
+                            <button type="button" id="intensityHard" onclick="selectIntensity('hard')" 
+                                    class="intensity-btn bg-red-100 hover:bg-red-200 text-red-800 font-bold py-3 rounded-lg border-2 border-transparent transition">
+                                💪 קשה
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl p-6 text-center">
+                        <p class="text-white text-sm mb-2">קלוריות משוערות:</p>
+                        <p id="calorieResult" class="text-white text-5xl font-bold">0</p>
+                        <p class="text-purple-100 text-xs mt-2">קלוריות</p>
+                    </div>
+                    
+                    <button onclick="hideCalorieCalculator()" class="w-full bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 rounded-lg">
+                        סגור
                     </button>
                 </div>
             </div>
@@ -1695,6 +1753,58 @@ app.get('/dashboard', (c) => {
               showNotification('שגיאה בשמירת אימון: ' + (error.response?.data?.error || error.message), 'error')
             }
           })
+
+          // Calorie Calculator Functions
+          let currentIntensity = 'medium'
+          
+          function showCalorieCalculator() {
+            document.getElementById('calorieCalculatorContainer').classList.remove('hidden')
+            updateCalorieEstimate()
+          }
+          
+          function hideCalorieCalculator() {
+            document.getElementById('calorieCalculatorContainer').classList.add('hidden')
+          }
+          
+          function selectIntensity(intensity) {
+            currentIntensity = intensity
+            
+            // Reset all buttons
+            document.getElementById('intensityLight').className = 'intensity-btn bg-green-100 hover:bg-green-200 text-green-800 font-bold py-3 rounded-lg border-2 border-transparent transition'
+            document.getElementById('intensityMedium').className = 'intensity-btn bg-yellow-100 hover:bg-yellow-200 text-yellow-800 font-bold py-3 rounded-lg border-2 border-transparent transition'
+            document.getElementById('intensityHard').className = 'intensity-btn bg-red-100 hover:bg-red-200 text-red-800 font-bold py-3 rounded-lg border-2 border-transparent transition'
+            
+            // Highlight selected
+            if (intensity === 'light') {
+              document.getElementById('intensityLight').className = 'intensity-btn bg-green-100 hover:bg-green-200 text-green-800 font-bold py-3 rounded-lg border-4 border-green-500 transition'
+            } else if (intensity === 'medium') {
+              document.getElementById('intensityMedium').className = 'intensity-btn bg-yellow-100 hover:bg-yellow-200 text-yellow-800 font-bold py-3 rounded-lg border-4 border-yellow-500 transition'
+            } else {
+              document.getElementById('intensityHard').className = 'intensity-btn bg-red-100 hover:bg-red-200 text-red-800 font-bold py-3 rounded-lg border-4 border-red-500 transition'
+            }
+            
+            updateCalorieEstimate()
+          }
+          
+          function updateCalorieEstimate() {
+            const duration = document.getElementById('durationSlider').value
+            document.getElementById('durationValue').textContent = duration
+            
+            // MET values for jumping rope
+            const metValues = {
+              'light': 8.8,    // Easy pace
+              'medium': 11.8,  // Moderate pace
+              'hard': 12.3     // Vigorous pace
+            }
+            
+            const met = metValues[currentIntensity]
+            
+            // Assuming average weight of 70kg
+            const weight = 70
+            const calories = Math.round((met * weight * duration) / 60)
+            
+            document.getElementById('calorieResult').textContent = calories
+          }
 
           // Load dashboard on page load
           loadDashboard()
@@ -2847,6 +2957,21 @@ app.get('/settings', (c) => {
                 </div>
             </div>
 
+            <!-- Edit User Profile -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <h2 class="text-2xl font-bold text-gray-800 mb-4">
+                    <i class="fas fa-user-edit ml-2"></i>
+                    עריכת פרטים
+                </h2>
+                <button onclick="openEditProfile()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-lg transition text-xl">
+                    <i class="fas fa-edit ml-2"></i>
+                    ערוך פרטי משתמש
+                </button>
+                <p class="text-sm text-gray-600 mt-2 text-center">
+                    ערוך שם, גיל, גובה, משקל, יעדים, מייל וטלפון
+                </p>
+            </div>
+
             <!-- User Actions -->
             <div class="bg-white rounded-xl shadow-lg p-6">
                 <h2 class="text-2xl font-bold text-gray-800 mb-4">
@@ -2862,6 +2987,103 @@ app.get('/settings', (c) => {
                         <i class="fas fa-exclamation-triangle ml-2"></i>
                         מחק משתמש לצמיתות (לא ניתן לשחזר)
                     </button>
+                </div>
+            </div>
+            
+            <!-- Edit Profile Modal -->
+            <div id="editProfileModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+                <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h2 class="text-2xl font-bold text-gray-800">
+                                <i class="fas fa-user-edit ml-2"></i>
+                                עריכת פרטי משתמש
+                            </h2>
+                            <button onclick="closeEditProfile()" class="text-gray-500 hover:text-gray-700">
+                                <i class="fas fa-times text-2xl"></i>
+                            </button>
+                        </div>
+                        
+                        <form id="editProfileForm" class="space-y-4">
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2">שם מלא</label>
+                                <input type="text" name="name" id="editName" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-gray-700 font-bold mb-2">גיל</label>
+                                    <input type="number" name="age" id="editAge" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-gray-700 font-bold mb-2">מין</label>
+                                    <select name="gender" id="editGender" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                        <option value="male">זכר</option>
+                                        <option value="female">נקבה</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-gray-700 font-bold mb-2">גובה (ס"מ)</label>
+                                    <input type="number" name="height_cm" id="editHeight" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-gray-700 font-bold mb-2">משקל נוכחי (ק"ג)</label>
+                                    <input type="number" step="0.1" name="weight_kg" id="editWeight" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-gray-700 font-bold mb-2">משקל יעד (ק"ג)</label>
+                                    <input type="number" step="0.1" name="target_weight_kg" id="editTargetWeight" required class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                </div>
+                                <div>
+                                    <label class="block text-gray-700 font-bold mb-2">אימונים בשבוע</label>
+                                    <select name="workouts_per_week" id="editWorkoutsPerWeek" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                        <option value="3">3</option>
+                                        <option value="4">4</option>
+                                        <option value="5">5</option>
+                                    </select>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2">רמת כושר</label>
+                                <select name="current_level" id="editLevel" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    <option value="beginner">מתחילים</option>
+                                    <option value="intermediate">בינוני</option>
+                                    <option value="advanced">מתקדם</option>
+                                </select>
+                            </div>
+                            
+                            <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                                <h4 class="font-bold text-gray-800 mb-3">פרטי קשר</h4>
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-gray-700 font-bold mb-2">מייל</label>
+                                        <input type="email" name="email" id="editEmail" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    </div>
+                                    <div>
+                                        <label class="block text-gray-700 font-bold mb-2">טלפון</label>
+                                        <input type="tel" name="phone" id="editPhone" placeholder="972501234567" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="flex gap-4">
+                                <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition">
+                                    <i class="fas fa-save ml-2"></i>
+                                    שמור שינויים
+                                </button>
+                                <button type="button" onclick="closeEditProfile()" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg">
+                                    ביטול
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         </main>
@@ -3038,6 +3260,66 @@ app.get('/settings', (c) => {
                     showNotification('שגיאה במחיקה מלאה: ' + (error.response?.data?.error || error.message), 'error')
                 }
             }
+
+            async function openEditProfile() {
+                try {
+                    // Load current user data
+                    const response = await axios.get('/api/users/' + userId)
+                    const user = response.data
+                    
+                    // Fill form with current data
+                    document.getElementById('editName').value = user.name || ''
+                    document.getElementById('editAge').value = user.age || ''
+                    document.getElementById('editGender').value = user.gender || 'male'
+                    document.getElementById('editHeight').value = user.height_cm || ''
+                    document.getElementById('editWeight').value = user.weight_kg || ''
+                    document.getElementById('editTargetWeight').value = user.target_weight_kg || ''
+                    document.getElementById('editWorkoutsPerWeek').value = user.workouts_per_week || 3
+                    document.getElementById('editLevel').value = user.current_level || 'beginner'
+                    document.getElementById('editEmail').value = user.email || ''
+                    document.getElementById('editPhone').value = user.phone || ''
+                    
+                    // Show modal
+                    document.getElementById('editProfileModal').classList.remove('hidden')
+                } catch (error) {
+                    showNotification('שגיאה בטעינת נתונים: ' + error.message, 'error')
+                }
+            }
+            
+            function closeEditProfile() {
+                document.getElementById('editProfileModal').classList.add('hidden')
+            }
+            
+            document.getElementById('editProfileForm').addEventListener('submit', async (e) => {
+                e.preventDefault()
+                
+                const formData = new FormData(e.target)
+                const data = {
+                    name: formData.get('name'),
+                    age: parseInt(formData.get('age')),
+                    gender: formData.get('gender'),
+                    height_cm: parseFloat(formData.get('height_cm')),
+                    weight_kg: parseFloat(formData.get('weight_kg')),
+                    target_weight_kg: parseFloat(formData.get('target_weight_kg')),
+                    workouts_per_week: parseInt(formData.get('workouts_per_week')),
+                    current_level: formData.get('current_level'),
+                    email: formData.get('email') || null,
+                    phone: formData.get('phone') || null
+                }
+                
+                try {
+                    const response = await axios.put('/api/users/' + userId, data)
+                    showNotification('✅ פרטי המשתמש עודכנו בהצלחה!', 'success')
+                    closeEditProfile()
+                    
+                    // Refresh page after 1 second
+                    setTimeout(() => {
+                        window.location.reload()
+                    }, 1000)
+                } catch (error) {
+                    showNotification('שגיאה בעדכון: ' + (error.response?.data?.error || error.message), 'error')
+                }
+            })
 
             loadProfileImage()
         </script>
