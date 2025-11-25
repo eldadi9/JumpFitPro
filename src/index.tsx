@@ -100,11 +100,13 @@ app.get('/api/users/:id', async (c) => {
     const bmi = calculateBMI(user.weight_kg as number, user.height_cm as number)
     const progress = calculateWeightProgress(user.weight_kg as number, user.target_weight_kg as number)
 
-    // החזרה עם כל הנתונים מפורסים
+    // החזרה עם כל הנתונים
     return c.json({ 
-      ...user,
-      bmi,
-      progress
+      user: {
+        ...user,
+        bmi,
+        progress
+      }
     })
   } catch (error) {
     return c.json({ error: 'שגיאה בקבלת משתמש', details: String(error) }, 500)
@@ -118,36 +120,70 @@ app.put('/api/users/:id', async (c) => {
   try {
     const userId = c.req.param('id')
     const body = await c.req.json()
-    const { name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, email, phone } = body
-
-    // אם המשקל השתנה, נוסיף רשומה לטבלת מעקב משקל
-    if (weight_kg) {
-      const currentUser = await c.env.DB.prepare(`SELECT weight_kg FROM users WHERE id = ?`).bind(userId).first()
+    
+    // בניית השדות לעדכון דינמית
+    const updates: string[] = []
+    const values: any[] = []
+    
+    if (body.name !== undefined) {
+      updates.push('name = ?')
+      values.push(body.name)
+    }
+    if (body.age !== undefined) {
+      updates.push('age = ?')
+      values.push(body.age)
+    }
+    if (body.gender !== undefined) {
+      updates.push('gender = ?')
+      values.push(body.gender)
+    }
+    if (body.height_cm !== undefined) {
+      updates.push('height_cm = ?')
+      values.push(body.height_cm)
+    }
+    if (body.weight_kg !== undefined) {
+      updates.push('weight_kg = ?')
+      values.push(body.weight_kg)
       
-      if (currentUser && currentUser.weight_kg !== weight_kg) {
+      // אם המשקל השתנה, נוסיף רשומה לטבלת מעקב משקל
+      const currentUser = await c.env.DB.prepare(`SELECT weight_kg FROM users WHERE id = ?`).bind(userId).first()
+      if (currentUser && currentUser.weight_kg !== body.weight_kg) {
         await c.env.DB.prepare(`
           INSERT INTO weight_tracking (user_id, weight_kg, measurement_date, notes)
           VALUES (?, ?, date('now'), ?)
-        `).bind(userId, weight_kg, 'עדכון משקל').run()
+        `).bind(userId, body.weight_kg, 'עדכון משקל').run()
       }
     }
-
-    await c.env.DB.prepare(`
-      UPDATE users 
-      SET name = COALESCE(?, name),
-          age = COALESCE(?, age),
-          gender = COALESCE(?, gender),
-          height_cm = COALESCE(?, height_cm),
-          weight_kg = COALESCE(?, weight_kg),
-          target_weight_kg = COALESCE(?, target_weight_kg),
-          workouts_per_week = COALESCE(?, workouts_per_week),
-          current_level = COALESCE(?, current_level),
-          preferred_intensity = COALESCE(?, preferred_intensity),
-          email = COALESCE(?, email),
-          phone = COALESCE(?, phone),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).bind(name, age, gender, height_cm, weight_kg, target_weight_kg, workouts_per_week, current_level, preferred_intensity, email, phone, userId).run()
+    if (body.target_weight_kg !== undefined) {
+      updates.push('target_weight_kg = ?')
+      values.push(body.target_weight_kg)
+    }
+    if (body.workouts_per_week !== undefined) {
+      updates.push('workouts_per_week = ?')
+      values.push(body.workouts_per_week)
+    }
+    if (body.current_level !== undefined) {
+      updates.push('current_level = ?')
+      values.push(body.current_level)
+    }
+    if (body.email !== undefined) {
+      updates.push('email = ?')
+      values.push(body.email)
+    }
+    if (body.phone !== undefined) {
+      updates.push('phone = ?')
+      values.push(body.phone)
+    }
+    
+    if (updates.length === 0) {
+      return c.json({ error: 'אין נתונים לעדכון' }, 400)
+    }
+    
+    updates.push('updated_at = CURRENT_TIMESTAMP')
+    values.push(userId)
+    
+    const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`
+    await c.env.DB.prepare(query).bind(...values).run()
 
     return c.json({ success: true, message: 'משתמש עודכן בהצלחה' })
   } catch (error) {
@@ -196,6 +232,23 @@ app.delete('/api/users/:id/permanent', async (c) => {
     })
   } catch (error) {
     return c.json({ error: 'שגיאה במחיקה מלאה', details: String(error) }, 500)
+  }
+})
+
+/**
+ * שחזור משתמש שנמחק (Soft Delete)
+ */
+app.patch('/api/users/:id/restore', async (c) => {
+  try {
+    const userId = c.req.param('id')
+    
+    await c.env.DB.prepare(`
+      UPDATE users SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).bind(userId).run()
+    
+    return c.json({ success: true, message: 'משתמש שוחזר בהצלחה' })
+  } catch (error) {
+    return c.json({ error: 'שגיאה בשחזור משתמש', details: String(error) }, 500)
   }
 })
 
