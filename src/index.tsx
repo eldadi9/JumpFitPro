@@ -1590,9 +1590,9 @@ app.get('/dashboard', (c) => {
           // Load dashboard data
           async function loadDashboard() {
             try {
-              // Load user data (הנתונים מגיעים ישירות - לא מקוננים ב-user)
+              // Load user data
               const userResponse = await axios.get(\`/api/users/\${userId}\`)
-              const userData = userResponse.data
+              const userData = userResponse.data.user
               
               // הצגת שם + אימוג'י מין
               const genderEmoji = userData.gender === 'female' ? '👩' : '👨'
@@ -2111,7 +2111,7 @@ app.get('/plans', (c) => {
                 try {
                     // Get user email
                     const userResponse = await axios.get(\`/api/users/\${userId}\`)
-                    const userEmail = userResponse.data.email
+                    const userEmail = userResponse.data.user.email
                     
                     if (!userEmail) {
                         showNotification('לא נמצא מייל במערכת. אנא הוסף מייל בהגדרות', 'warning')
@@ -2142,7 +2142,7 @@ app.get('/plans', (c) => {
                 try {
                     // Get user phone
                     const userResponse = await axios.get(\`/api/users/\${userId}\`)
-                    const userPhone = userResponse.data.phone
+                    const userPhone = userResponse.data.user.phone
                     
                     let phone = userPhone
                     
@@ -2428,7 +2428,7 @@ app.get('/workout-timer', async (c) => {
                 
                 if (userId) {
                     const userResponse = await axios.get(\`/api/users/\${userId}\`);
-                    timerState.userWeight = userResponse.data.weight_kg;
+                    timerState.userWeight = userResponse.data.user.weight_kg;
                 }
                 
                 updateSetCounter();
@@ -3648,9 +3648,9 @@ app.get('/settings', (c) => {
             async function loadProfileImage() {
                 try {
                     const response = await axios.get('/api/users/' + userId)
-                    // הנתונים מגיעים ישירות (לא מקוננים ב-user)
-                    if (response.data.profile_image && response.data.profile_image !== 'null') {
-                        document.getElementById('currentProfileImage').src = response.data.profile_image
+                    const user = response.data.user
+                    if (user.profile_image && user.profile_image !== 'null') {
+                        document.getElementById('currentProfileImage').src = user.profile_image
                         document.getElementById('currentProfileImage').classList.remove('hidden')
                         document.getElementById('noImagePlaceholder').classList.add('hidden')
                     }
@@ -3776,7 +3776,7 @@ app.get('/settings', (c) => {
                 try {
                     // Load current user data
                     const response = await axios.get('/api/users/' + userId)
-                    const user = response.data
+                    const user = response.data.user
                     
                     // Fill form with current data
                     document.getElementById('editName').value = user.name || ''
