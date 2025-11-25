@@ -2421,17 +2421,36 @@ app.get('/create-profile', (c) => {
         </div>
 
         <script>
-            // Get user_id and session from localStorage
-            const userId = localStorage.getItem('user_id')
-            const sessionToken = localStorage.getItem('session_token')
+            // Wait for DOM to be fully loaded
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('=== Profile Creation Script Started (DOM Ready) ===')
+                
+                // Get user_id and session from localStorage
+                const userId = localStorage.getItem('user_id')
+                const sessionToken = localStorage.getItem('session_token')
 
-            if (!userId || !sessionToken) {
-                alert('אין מזהה משתמש. מעביר לעמוד הבית...')
-                window.location.href = '/'
-            }
+                console.log('User ID:', userId)
+                console.log('Session Token:', sessionToken ? 'EXISTS' : 'MISSING')
 
-            document.getElementById('profileForm').addEventListener('submit', async (e) => {
-                e.preventDefault()
+                if (!userId || !sessionToken) {
+                    console.error('Missing user_id or session_token!')
+                    alert('אין מזהה משתמש. מעביר לעמוד הבית...')
+                    window.location.href = '/'
+                    return
+                }
+
+                const profileForm = document.getElementById('profileForm')
+                if (!profileForm) {
+                    console.error('profileForm element not found!')
+                    return
+                }
+
+                console.log('Adding submit event listener...')
+                profileForm.addEventListener('submit', async (e) => {
+                    console.log('=== Form Submit Event Triggered ===')
+                    e.preventDefault()
+                    e.stopPropagation()
+                    console.log('Default action prevented and propagation stopped')
 
                 // Validation
                 const name = document.getElementById('name').value.trim()
@@ -2440,23 +2459,30 @@ app.get('/create-profile', (c) => {
                 const weight = parseFloat(document.getElementById('weight_kg').value)
                 const targetWeight = parseFloat(document.getElementById('target_weight_kg').value)
 
-                if (!name || !age || !height || !weight || !targetWeight) {
-                    showMessage('נא למלא את כל השדות החובה', 'error')
+                console.log('Form values:', { name, age, height, weight, targetWeight })
+
+                if (!name) {
+                    showMessage('נא למלא שם מלא', 'error')
                     return
                 }
 
-                if (age < 10 || age > 100) {
+                if (isNaN(age) || age < 10 || age > 100) {
                     showMessage('גיל צריך להיות בין 10 ל-100', 'error')
                     return
                 }
 
-                if (height < 100 || height > 250) {
+                if (isNaN(height) || height < 100 || height > 250) {
                     showMessage('גובה צריך להיות בין 100 ל-250 ס"מ', 'error')
                     return
                 }
 
-                if (weight < 30 || weight > 300) {
+                if (isNaN(weight) || weight < 30 || weight > 300) {
                     showMessage('משקל צריך להיות בין 30 ל-300 ק"ג', 'error')
+                    return
+                }
+
+                if (isNaN(targetWeight) || targetWeight < 30 || targetWeight > 300) {
+                    showMessage('משקל יעד צריך להיות בין 30 ל-300 ק"ג', 'error')
                     return
                 }
 
@@ -2475,12 +2501,16 @@ app.get('/create-profile', (c) => {
                     profile_image: profileImageBase64
                 }
 
-                console.log('Sending profile data:', formData)
+                console.log('=== Sending Profile Data ===')
+                console.log('Data:', formData)
                 showMessage('שומר פרטים...', 'info')
 
                 try {
+                    console.log('Making API call to /api/auth/complete-profile...')
                     const response = await axios.post('/api/auth/complete-profile', formData)
-                    console.log('Profile response:', response.data)
+                    console.log('=== API Response Received ===')
+                    console.log('Response:', response)
+                    console.log('Response data:', response.data)
                     
                     if (response.data && response.data.success) {
                         showMessage('✅ הפרופיל נוצר בהצלחה! מעביר לדשבורד...', 'success')
@@ -2546,6 +2576,9 @@ app.get('/create-profile', (c) => {
                 document.getElementById('imagePreview').classList.add('hidden')
                 document.getElementById('fileInput').value = ''
             }
+            
+            console.log('=== Profile Creation Script Initialized ===')
+            }) // End of DOMContentLoaded
         </script>
     </body>
     </html>
