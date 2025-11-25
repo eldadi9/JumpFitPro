@@ -871,6 +871,283 @@ app.get('/api/intensity-levels', async (c) => {
 })
 
 // ========================================
+// API Routes - אימות (Authentication)
+// ========================================
+
+/**
+ * הרשמת משתמש חדש
+ */
+app.post('/api/auth/register', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { email, password, name, age, height_cm, weight_kg, target_weight_kg, gender, workouts_per_week, current_level } = body
+    
+    if (!email || !password || !name) {
+      return c.json({ error: 'חובה למלא: מייל, סיסמה ושם מלא' }, 400)
+    }
+    
+    // Check if email already exists
+    const existingUser = await c.env.DB.prepare(`
+      SELECT id FROM users WHERE email = ?
+    `).bind(email).first()
+    
+    if (existingUser) {
+      return c.json({ error: 'המייל כבר רשום במערכת' }, 409)
+    }
+    
+    // Hash password (simple for now - in production use bcrypt)
+    const passwordHash = btoa(password) // Base64 encoding (replace with proper hashing in production)
+    
+    // Create user
+    const result = await c.env.DB.prepare(`
+      INSERT INTO users (
+        email, password_hash, name, age, height_cm, weight_kg, target_weight_kg, 
+        gender, workouts_per_week, current_level, role, is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'user', 1)
+    `).bind(
+      email, passwordHash, name, 
+      age || 25, height_cm || 170, weight_kg || 70, target_weight_kg || 65,
+      gender || 'male', workouts_per_week || 3, current_level || 'beginner'
+    ).run()
+    
+    const userId = result.meta.last_row_id
+    
+    // Create session
+    const sessionToken = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+    
+    await c.env.DB.prepare(`
+      INSERT INTO user_sessions (user_id, session_token, expires_at)
+      VALUES (?, ?, ?)
+    `).bind(userId, sessionToken, expiresAt.toISOString()).run()
+    
+    return c.json({ 
+      success: true, 
+      message: 'הרשמה הושלמה בהצלחה!',
+      user_id: userId,
+      session_token: sessionToken,
+      name: name
+    })
+  } catch (error) {
+    return c.json({ error: 'שגיאה בהרשמה', details: String(error) }, 500)
+  }
+})
+
+/**
+ * התחברות משתמש
+ */
+app.post('/api/auth/login', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { email, password } = body
+    
+    if (!email || !password) {
+      return c.json({ error: 'חובה למלא מייל וסיסמה' }, 400)
+    }
+    
+    // Find user
+    const user = await c.env.DB.prepare(`
+      SELECT id, name, email, password_hash, role, is_active 
+      FROM users 
+      WHERE email = ? AND is_deleted = 0
+    `).bind(email).first()
+    
+    if (!user) {
+      return c.json({ error: 'מייל או סיסמה שגויים' }, 401)
+    }
+    
+    if (!user.is_active) {
+      return c.json({ error: 'המשתמש לא פעיל. פנה למנהל המערכת' }, 403)
+    }
+    
+    // Verify password
+    const passwordHash = btoa(password)
+    if (passwordHash !== user.password_hash) {
+      return c.json({ error: 'מייל או סיסמה שגויים' }, 401)
+    }
+    
+    // Create session
+    const sessionToken = crypto.randomUUID()
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+    
+    await c.env.DB.prepare(`
+      INSERT INTO user_sessions (user_id, session_token, expires_at)
+      VALUES (?, ?, ?)
+    `).bind(user.id, sessionToken, expiresAt.toISOString()).run()
+    
+    // Update last login
+    await c.env.DB.prepare(`
+      UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?
+    `).bind(user.id).run()
+    
+    return c.json({ 
+      success: true, 
+      message: 'התחברת בהצלחה!',
+      user_id: user.id,
+      name: user.name,
+      role: user.role,
+      session_token: sessionToken
+    })
+  } catch (error) {
+    return c.json({ error: 'שגיאה בהתחברות', details: String(error) }, 500)
+  }
+})
+
+/**
+ * התנתקות משתמש
+ */
+app.post('/api/auth/logout', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { session_token } = body
+    
+    if (!session_token) {
+      return c.json({ error: 'חסר session token' }, 400)
+    }
+    
+    // Delete session
+    await c.env.DB.prepare(`
+      DELETE FROM user_sessions WHERE session_token = ?
+    `).bind(session_token).run()
+    
+    return c.json({ success: true, message: 'התנתקת בהצלחה' })
+  } catch (error) {
+    return c.json({ error: 'שגיאה בהתנתקות', details: String(error) }, 500)
+  }
+})
+
+/**
+ * Admin Panel - קבלת כל המשתמשים (Admin בלבד)
+ */
+app.get('/api/admin/users', async (c) => {
+  try {
+    const sessionToken = c.req.header('Authorization')?.replace('Bearer ', '')
+    
+    if (!sessionToken) {
+      return c.json({ error: 'נדרשת הרשאת Admin' }, 401)
+    }
+    
+    // Verify admin session
+    const session = await c.env.DB.prepare(`
+      SELECT s.user_id, u.role 
+      FROM user_sessions s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.session_token = ? AND s.expires_at > datetime('now')
+    `).bind(sessionToken).first()
+    
+    if (!session || session.role !== 'admin') {
+      return c.json({ error: 'נדרשת הרשאת Admin' }, 403)
+    }
+    
+    // Get all users (including soft-deleted)
+    const users = await c.env.DB.prepare(`
+      SELECT 
+        id, name, email, phone, age, height_cm, weight_kg, target_weight_kg,
+        gender, current_level, role, is_active, is_deleted, 
+        created_at, last_login
+      FROM users 
+      ORDER BY created_at DESC
+    `).all()
+    
+    return c.json({ 
+      success: true, 
+      count: users.results.length,
+      users: users.results 
+    })
+  } catch (error) {
+    return c.json({ error: 'שגיאה בקבלת משתמשים', details: String(error) }, 500)
+  }
+})
+
+/**
+ * Admin Panel - עדכון הרשאות משתמש
+ */
+app.patch('/api/admin/users/:id', async (c) => {
+  try {
+    const sessionToken = c.req.header('Authorization')?.replace('Bearer ', '')
+    
+    if (!sessionToken) {
+      return c.json({ error: 'נדרשת הרשאת Admin' }, 401)
+    }
+    
+    // Verify admin session
+    const session = await c.env.DB.prepare(`
+      SELECT s.user_id, u.role 
+      FROM user_sessions s
+      JOIN users u ON s.user_id = u.id
+      WHERE s.session_token = ? AND s.expires_at > datetime('now')
+    `).bind(sessionToken).first()
+    
+    if (!session || session.role !== 'admin') {
+      return c.json({ error: 'נדרשת הרשאת Admin' }, 403)
+    }
+    
+    const userId = c.req.param('id')
+    const body = await c.req.json()
+    const { role, is_active } = body
+    
+    // Update user
+    await c.env.DB.prepare(`
+      UPDATE users 
+      SET role = COALESCE(?, role),
+          is_active = COALESCE(?, is_active),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).bind(role, is_active, userId).run()
+    
+    return c.json({ success: true, message: 'משתמש עודכן בהצלחה' })
+  } catch (error) {
+    return c.json({ error: 'שגיאה בעדכון משתמש', details: String(error) }, 500)
+  }
+})
+
+/**
+ * בדיקת session והחזרת פרטי משתמש
+ */
+app.get('/api/auth/me', async (c) => {
+  try {
+    const sessionToken = c.req.header('Authorization')?.replace('Bearer ', '')
+    
+    if (!sessionToken) {
+      return c.json({ error: 'לא מחובר' }, 401)
+    }
+    
+    // Find session
+    const session = await c.env.DB.prepare(`
+      SELECT user_id, expires_at FROM user_sessions 
+      WHERE session_token = ?
+    `).bind(sessionToken).first()
+    
+    if (!session) {
+      return c.json({ error: 'Session לא תקף' }, 401)
+    }
+    
+    // Check if expired
+    if (new Date(session.expires_at) < new Date()) {
+      await c.env.DB.prepare(`
+        DELETE FROM user_sessions WHERE session_token = ?
+      `).bind(sessionToken).run()
+      return c.json({ error: 'Session פג תוקף' }, 401)
+    }
+    
+    // Get user
+    const user = await c.env.DB.prepare(`
+      SELECT id, name, email, role, created_at, last_login
+      FROM users 
+      WHERE id = ? AND is_deleted = 0 AND is_active = 1
+    `).bind(session.user_id).first()
+    
+    if (!user) {
+      return c.json({ error: 'משתמש לא נמצא' }, 404)
+    }
+    
+    return c.json({ user })
+  } catch (error) {
+    return c.json({ error: 'שגיאה בבדיקת session', details: String(error) }, 500)
+  }
+})
+
+// ========================================
 // API Routes - הישגים (Achievements)
 // ========================================
 
@@ -1012,9 +1289,460 @@ app.post('/api/achievements/check/:userId', async (c) => {
 // ========================================
 
 /**
- * דף הבית - כניסה למערכת
+ * דף הבית החדש - מערכת אימות
  */
 app.get('/', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="he" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>JumpFitPro - התחבר או הירשם</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+          @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          .animate-slide-in { animation: slideIn 0.5s ease-out; }
+        </style>
+    </head>
+    <body class="bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 min-h-screen flex items-center justify-center p-4">
+        <!-- Welcome Modal (Hidden by default) -->
+        <div id="welcomeModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center animate-slide-in">
+                <div class="text-6xl mb-4">🎉</div>
+                <h2 class="text-3xl font-bold text-gray-800 mb-4">ברוך הבא לחבורה!</h2>
+                <p class="text-gray-600 mb-6">עכשיו אתה רשמית חלק ממשפחת JumpFitPro! בואו נתחיל את המסע שלך לירידה במשקל 💪</p>
+                <button onclick="closeWelcomeModal()" class="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-3 px-8 rounded-full transition duration-300 transform hover:scale-105">
+                    בואו נתחיל! 🚀
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Auth Container -->
+        <div class="bg-white rounded-2xl shadow-2xl overflow-hidden max-w-4xl w-full">
+            <div class="flex flex-col md:flex-row">
+                <!-- Left Side - Branding -->
+                <div class="bg-gradient-to-br from-indigo-600 to-purple-600 p-12 text-white md:w-1/2">
+                    <div class="flex flex-col items-center justify-center h-full text-center">
+                        <div class="text-6xl mb-6">🏃‍♂️</div>
+                        <h1 class="text-4xl font-bold mb-4">JumpFitPro</h1>
+                        <p class="text-lg mb-8">המסע שלך לירידה במשקל מתחיל כאן!</p>
+                        <div class="space-y-3 text-right">
+                            <div class="flex items-center gap-3">
+                                <i class="fas fa-check-circle text-2xl"></i>
+                                <span>תכניות אימון מותאמות אישית</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <i class="fas fa-check-circle text-2xl"></i>
+                                <span>מעקב קלוריות מדעי</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <i class="fas fa-check-circle text-2xl"></i>
+                                <span>גרפים והישגים</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Side - Auth Forms -->
+                <div class="p-12 md:w-1/2">
+                    <!-- Toggle Buttons -->
+                    <div class="flex gap-2 mb-8 bg-gray-100 rounded-lg p-1">
+                        <button id="loginTabBtn" onclick="showLoginTab()" class="flex-1 py-3 rounded-lg font-bold transition duration-300 bg-white shadow-md text-indigo-600">
+                            התחברות
+                        </button>
+                        <button id="registerTabBtn" onclick="showRegisterTab()" class="flex-1 py-3 rounded-lg font-bold transition duration-300 text-gray-600">
+                            הרשמה
+                        </button>
+                    </div>
+
+                    <!-- Login Form -->
+                    <div id="loginForm" class="space-y-4">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-6">ברוך שובך! 👋</h2>
+                        <div>
+                            <label class="block text-gray-700 font-bold mb-2">מייל</label>
+                            <input type="email" id="loginEmail" placeholder="your@email.com" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 font-bold mb-2">סיסמה</label>
+                            <input type="password" id="loginPassword" placeholder="••••••••" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                        </div>
+                        <button onclick="handleLogin()" class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 rounded-lg transition duration-300 transform hover:scale-105">
+                            <i class="fas fa-sign-in-alt ml-2"></i>
+                            התחבר
+                        </button>
+                        <p class="text-center text-gray-600 text-sm mt-4">
+                            או <a href="/legacy" class="text-indigo-600 hover:underline">השתמש במערכת הישנה</a>
+                        </p>
+                    </div>
+
+                    <!-- Register Form (Hidden) -->
+                    <div id="registerForm" class="hidden space-y-4">
+                        <h2 class="text-2xl font-bold text-gray-800 mb-6">בואו נתחיל! 🚀</h2>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2">שם מלא *</label>
+                                <input type="text" id="regName" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2">גיל</label>
+                                <input type="number" id="regAge" value="25" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 font-bold mb-2">מייל *</label>
+                            <input type="email" id="regEmail" required placeholder="your@email.com" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 font-bold mb-2">סיסמה *</label>
+                            <input type="password" id="regPassword" required placeholder="לפחות 6 תווים" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2">משקל נוכחי (ק"ג)</label>
+                                <input type="number" id="regWeight" value="70" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2">משקל יעד (ק"ג)</label>
+                                <input type="number" id="regTargetWeight" value="65" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                            </div>
+                        </div>
+                        <button onclick="handleRegister()" class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 rounded-lg transition duration-300 transform hover:scale-105">
+                            <i class="fas fa-user-plus ml-2"></i>
+                            הרשם עכשיו
+                        </button>
+                    </div>
+
+                    <div id="message" class="mt-4 hidden p-4 rounded-lg"></div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Tab switching
+            function showLoginTab() {
+                document.getElementById('loginForm').classList.remove('hidden')
+                document.getElementById('registerForm').classList.add('hidden')
+                document.getElementById('loginTabBtn').classList.add('bg-white', 'shadow-md', 'text-indigo-600')
+                document.getElementById('loginTabBtn').classList.remove('text-gray-600')
+                document.getElementById('registerTabBtn').classList.remove('bg-white', 'shadow-md', 'text-indigo-600')
+                document.getElementById('registerTabBtn').classList.add('text-gray-600')
+            }
+
+            function showRegisterTab() {
+                document.getElementById('registerForm').classList.remove('hidden')
+                document.getElementById('loginForm').classList.add('hidden')
+                document.getElementById('registerTabBtn').classList.add('bg-white', 'shadow-md', 'text-indigo-600')
+                document.getElementById('registerTabBtn').classList.remove('text-gray-600')
+                document.getElementById('loginTabBtn').classList.remove('bg-white', 'shadow-md', 'text-indigo-600')
+                document.getElementById('loginTabBtn').classList.add('text-gray-600')
+            }
+
+            function showMessage(text, type) {
+                const msg = document.getElementById('message')
+                msg.textContent = text
+                msg.className = 'mt-4 p-4 rounded-lg ' + (type === 'success' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')
+                msg.classList.remove('hidden')
+                setTimeout(() => msg.classList.add('hidden'), 5000)
+            }
+
+            async function handleLogin() {
+                const email = document.getElementById('loginEmail').value
+                const password = document.getElementById('loginPassword').value
+
+                if (!email || !password) {
+                    showMessage('חובה למלא מייל וסיסמה', 'error')
+                    return
+                }
+
+                try {
+                    const response = await axios.post('/api/auth/login', { email, password })
+                    localStorage.setItem('session_token', response.data.session_token)
+                    localStorage.setItem('user_id', response.data.user_id)
+                    localStorage.setItem('user_name', response.data.name)
+                    localStorage.setItem('user_role', response.data.role)
+                    
+                    showMessage('התחברת בהצלחה! מעביר לדשבורד...', 'success')
+                    setTimeout(() => {
+                        window.location.href = '/dashboard?user=' + response.data.user_id
+                    }, 1000)
+                } catch (error) {
+                    showMessage(error.response?.data?.error || 'שגיאה בהתחברות', 'error')
+                }
+            }
+
+            async function handleRegister() {
+                const name = document.getElementById('regName').value
+                const email = document.getElementById('regEmail').value
+                const password = document.getElementById('regPassword').value
+                const age = parseInt(document.getElementById('regAge').value)
+                const weight_kg = parseFloat(document.getElementById('regWeight').value)
+                const target_weight_kg = parseFloat(document.getElementById('regTargetWeight').value)
+
+                if (!name || !email || !password) {
+                    showMessage('חובה למלא: שם, מייל וסיסמה', 'error')
+                    return
+                }
+
+                if (password.length < 6) {
+                    showMessage('הסיסמה חייבת להיות לפחות 6 תווים', 'error')
+                    return
+                }
+
+                try {
+                    const response = await axios.post('/api/auth/register', {
+                        name, email, password, age, 
+                        height_cm: 170, 
+                        weight_kg, 
+                        target_weight_kg,
+                        gender: 'male',
+                        workouts_per_week: 3,
+                        current_level: 'beginner'
+                    })
+                    
+                    localStorage.setItem('session_token', response.data.session_token)
+                    localStorage.setItem('user_id', response.data.user_id)
+                    localStorage.setItem('user_name', response.data.name)
+                    localStorage.setItem('user_role', 'user')
+                    
+                    // Show welcome modal
+                    document.getElementById('welcomeModal').classList.remove('hidden')
+                } catch (error) {
+                    showMessage(error.response?.data?.error || 'שגיאה בהרשמה', 'error')
+                }
+            }
+
+            function closeWelcomeModal() {
+                document.getElementById('welcomeModal').classList.add('hidden')
+                const userId = localStorage.getItem('user_id')
+                window.location.href = '/dashboard?user=' + userId
+            }
+
+            // Enter key support
+            document.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    if (!document.getElementById('loginForm').classList.contains('hidden')) {
+                        handleLogin()
+                    } else {
+                        handleRegister()
+                    }
+                }
+            })
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+/**
+ * Admin Panel - ניהול משתמשים
+ */
+app.get('/admin', (c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="he" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Admin Panel - JumpFitPro</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    </head>
+    <body class="bg-gray-100">
+        <div class="container mx-auto px-4 py-8">
+            <!-- Header -->
+            <div class="bg-gradient-to-r from-red-600 to-pink-600 text-white p-6 rounded-lg shadow-lg mb-8">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h1 class="text-3xl font-bold mb-2">
+                            <i class="fas fa-shield-alt mr-2"></i>
+                            Admin Panel
+                        </h1>
+                        <p class="text-red-100">ניהול כל המשתמשים במערכת</p>
+                    </div>
+                    <div>
+                        <span id="adminName" class="bg-white text-red-600 px-4 py-2 rounded-full font-bold"></span>
+                        <button onclick="handleLogout()" class="mr-4 bg-red-700 hover:bg-red-800 text-white px-4 py-2 rounded-lg">
+                            <i class="fas fa-sign-out-alt mr-2"></i>
+                            התנתק
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600">סה"כ משתמשים</p>
+                            <p id="totalUsers" class="text-3xl font-bold text-gray-800">0</p>
+                        </div>
+                        <i class="fas fa-users text-4xl text-blue-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600">משתמשים פעילים</p>
+                            <p id="activeUsers" class="text-3xl font-bold text-green-600">0</p>
+                        </div>
+                        <i class="fas fa-user-check text-4xl text-green-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600">מנהלים</p>
+                            <p id="adminUsers" class="text-3xl font-bold text-purple-600">0</p>
+                        </div>
+                        <i class="fas fa-user-shield text-4xl text-purple-500"></i>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow-md">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-gray-600">משתמשים מחוקים</p>
+                            <p id="deletedUsers" class="text-3xl font-bold text-red-600">0</p>
+                        </div>
+                        <i class="fas fa-user-slash text-4xl text-red-500"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Users Table -->
+            <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                <div class="p-6 border-b border-gray-200">
+                    <h2 class="text-2xl font-bold text-gray-800">
+                        <i class="fas fa-list mr-2"></i>
+                        רשימת משתמשים
+                    </h2>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">ID</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">שם</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">מייל</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">גיל</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">משקל</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">רמה</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">תפקיד</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">סטטוס</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">תאריך הצטרפות</th>
+                                <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">פעולות</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="10" class="px-6 py-4 text-center text-gray-500">
+                                    <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                                    <p>טוען נתונים...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let sessionToken = localStorage.getItem('session_token')
+            let userId = localStorage.getItem('user_id')
+            let userName = localStorage.getItem('user_name')
+            let userRole = localStorage.getItem('user_role')
+
+            // Check authentication
+            if (!sessionToken || userRole !== 'admin') {
+                alert('נדרשת הרשאת Admin!')
+                window.location.href = '/'
+            }
+
+            document.getElementById('adminName').textContent = userName || 'Admin'
+
+            // Load users
+            async function loadUsers() {
+                try {
+                    const response = await axios.get('/api/admin/users', {
+                        headers: { 'Authorization': 'Bearer ' + sessionToken }
+                    })
+
+                    const users = response.data.users
+                    updateStats(users)
+                    renderUsersTable(users)
+                } catch (error) {
+                    alert('שגיאה בטעינת משתמשים: ' + (error.response?.data?.error || error.message))
+                    if (error.response?.status === 401 || error.response?.status === 403) {
+                        window.location.href = '/'
+                    }
+                }
+            }
+
+            function updateStats(users) {
+                document.getElementById('totalUsers').textContent = users.length
+                document.getElementById('activeUsers').textContent = users.filter(u => u.is_active && !u.is_deleted).length
+                document.getElementById('adminUsers').textContent = users.filter(u => u.role === 'admin').length
+                document.getElementById('deletedUsers').textContent = users.filter(u => u.is_deleted).length
+            }
+
+            function renderUsersTable(users) {
+                const tbody = document.getElementById('usersTableBody')
+                tbody.innerHTML = users.map(user => \`
+                    <tr class="\${user.is_deleted ? 'bg-red-50' : ''}">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">\${user.id}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">\${user.name}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">\${user.email || '-'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">\${user.age || '-'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">\${user.weight_kg || '-'} ק"ג</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">\${user.current_level || '-'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <span class="px-2 py-1 text-xs font-semibold rounded-full \${user.role === 'admin' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'}">
+                                \${user.role === 'admin' ? '👑 מנהל' : '👤 משתמש'}
+                            </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            \${user.is_deleted ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">🗑️ מחוק</span>' : 
+                              user.is_active ? '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">✅ פעיל</span>' :
+                              '<span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800">⏸️ לא פעיל</span>'}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">\${new Date(user.created_at).toLocaleDateString('he-IL')}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm">
+                            <a href="/dashboard?user=\${user.id}" target="_blank" class="text-indigo-600 hover:text-indigo-900 mr-3">
+                                <i class="fas fa-eye"></i> צפה
+                            </a>
+                            <a href="/settings?user=\${user.id}" target="_blank" class="text-blue-600 hover:text-blue-900">
+                                <i class="fas fa-cog"></i> הגדרות
+                            </a>
+                        </td>
+                    </tr>
+                \`).join('')
+            }
+
+            function handleLogout() {
+                localStorage.clear()
+                window.location.href = '/'
+            }
+
+            // Load on page load
+            loadUsers()
+        </script>
+    </body>
+    </html>
+  `)
+})
+
+/**
+ * דף הבית הישן - למשתמשים קיימים ללא אימות
+ */
+app.get('/legacy', (c) => {
   return c.html(`
     <!DOCTYPE html>
     <html lang="he" dir="rtl">
@@ -1429,10 +2157,16 @@ app.get('/dashboard', (c) => {
                             </div>
                         </div>
                     </div>
-                    <a href="/" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">
-                        <i class="fas fa-home ml-2"></i>
-                        חזרה
-                    </a>
+                    <div class="flex gap-2">
+                        <a href="/admin" id="adminPanelBtn" class="hidden bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg">
+                            <i class="fas fa-shield-alt ml-2"></i>
+                            Admin Panel
+                        </a>
+                        <a href="/" class="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg">
+                            <i class="fas fa-home ml-2"></i>
+                            חזרה
+                        </a>
+                    </div>
                 </div>
             </div>
         </header>
@@ -1746,6 +2480,12 @@ app.get('/dashboard', (c) => {
               // Load user data
               const userResponse = await axios.get(\`/api/users/\${userId}\`)
               const userData = userResponse.data.user
+              
+              // הצגת כפתור Admin Panel למנהלים בלבד
+              const userRole = localStorage.getItem('user_role')
+              if (userRole === 'admin') {
+                document.getElementById('adminPanelBtn').classList.remove('hidden')
+              }
               
               // הצגת שם + אימוג'י מין
               const genderEmoji = userData.gender === 'female' ? '👩' : '👨'
