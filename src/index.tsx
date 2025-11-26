@@ -2409,7 +2409,7 @@ app.get('/create-profile', (c) => {
 
                     <!-- Submit Buttons -->
                     <div class="space-y-3 pt-4">
-                        <button type="submit" id="submitBtn"
+                        <button type="button" id="submitBtn" onclick="submitProfileForm()"
                             class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-4 rounded-lg transition duration-300 transform hover:scale-105 shadow-lg flex items-center justify-center gap-2">
                             <i class="fas fa-check-circle"></i>
                             <span id="submitBtnText">צור חשבון והתחל</span>
@@ -2466,10 +2466,9 @@ app.get('/create-profile', (c) => {
                 // Flag to prevent double submission
                 let isSubmitting = false
 
-                console.log('Adding submit event listener...')
-                profileForm.addEventListener('submit', async (e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
+                // Submit function - called from button onclick
+                window.submitProfileForm = async function() {
+                    console.log('=== submitProfileForm() called ===')
                     
                     // Prevent double submission
                     if (isSubmitting) {
@@ -2477,7 +2476,7 @@ app.get('/create-profile', (c) => {
                         return false
                     }
                     
-                    console.log('=== Form Submit Event Triggered ===')
+                    console.log('=== Form Submit Started ===')
                     isSubmitting = true
                     
                     // Disable submit button to prevent double submission
@@ -2574,7 +2573,7 @@ app.get('/create-profile', (c) => {
                         showMessage('❌ ' + errMsg, 'error')
                         resetSubmitButton()
                     }
-                })
+                } // End of submitProfileForm
 
                 function showMessage(text, type) {
                 const msg = document.getElementById('message')
