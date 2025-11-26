@@ -2625,7 +2625,7 @@ app.get('/create-profile', (c) => {
             }
 
             window.capturePhoto = function() {
-                alert('פיצ\'ר צילום תמונה יהיה זמין בקרוב! לעת עתה השתמש ב"העלה תמונה"')
+                alert('פיצר צילום תמונה יהיה זמין בקרוב! לעת עתה השתמש בהעלאת תמונה')
             }
 
             window.showImagePreview = function(src) {
