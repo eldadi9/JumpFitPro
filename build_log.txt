@@ -1,0 +1,10 @@
+
+> build
+> vite build
+
+[36mvite v6.4.1 [32mbuilding SSR bundle for production...[36m[39m
+transforming...
+[32m✓[39m 39 modules transformed.
+rendering chunks...
+[2mdist/[22m[36m_worker.js  [39m[1m[2m198.10 kB[22m[1m[22m
+[32m✓ built in 683ms[39m
