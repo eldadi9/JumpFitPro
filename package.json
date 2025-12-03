@@ -5,6 +5,7 @@
     "dev": "vite",
     "dev:sandbox": "wrangler pages dev dist --d1=rope-fitness-db --local --ip 0.0.0.0 --port 3000",
     "build": "vite build",
+    "build:dev": "vite build --mode development",
     "preview": "wrangler pages dev",
     "deploy": "npm run build && wrangler pages deploy",
     "deploy:prod": "npm run build && wrangler pages deploy dist --project-name jumpfitpro",
