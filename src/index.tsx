@@ -983,23 +983,29 @@ app.post('/api/nutrition/chat', async (c) => {
 תן המלצות מותאמות אישית, מתכונים בעברית, וחשב קלוריות כשצריך.
 השתמש בשפה חמימה וידידותית.`
 
-    // Call OpenAI API
+    // Call OpenAI API with proper UTF-8 encoding for Hebrew
+    const requestBody = JSON.stringify({
+      model: 'gpt-4o-mini', // Cost-effective model that handles Hebrew well
+      messages: [
+        { role: 'system', content: systemMessage },
+        ...(history || []),
+        { role: 'user', content: message }
+      ],
+      temperature: 0.7,
+      max_tokens: 1000
+    })
+    
+    // Use TextEncoder to properly encode the body as UTF-8
+    const encoder = new TextEncoder()
+    const encodedBody = encoder.encode(requestBody)
+    
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/json; charset=utf-8',
         'Authorization': `Bearer ${OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: 'gpt-4', // or your GPT model
-        messages: [
-          { role: 'system', content: systemMessage },
-          ...(history || []),
-          { role: 'user', content: message }
-        ],
-        temperature: 0.7,
-        max_tokens: 1000
-      })
+      body: encodedBody
     })
 
     if (!response.ok) {
