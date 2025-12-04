@@ -942,91 +942,183 @@ app.get('/api/intensity-levels', async (c) => {
 
 /**
  * Chat with Nutrition GPT
- * This endpoint will connect to your custom GPT
+ * מחבר בין הדשבורד לבין OpenAI
  */
 app.post('/api/nutrition/chat', async (c) => {
   try {
-    const body = await c.req.json()
-    const { message, userId, history } = body
+    // ננסה לקרוא את ה body כ JSON, ואם נכשל נקבל אובייקט ריק
+    let body: any = {}
+    try {
+      body = await c.req.json()
+    } catch {
+      body = {}
+    }
 
-    if (!message) {
+    // פורמט ישן מהדשבורד
+    let message: string = typeof body.message === 'string' ? body.message : ''
+    let history: any[] = Array.isArray(body.history) ? body.history : []
+
+    // תמיכה בפורמט messages אם יגיע בעתיד
+    const messagesFromClient: any[] = Array.isArray(body.messages) ? body.messages : []
+
+    if (!message && messagesFromClient.length > 0) {
+      // ניקח את ההודעה האחרונה של המשתמש
+      const lastUser = [...messagesFromClient]
+        .reverse()
+        .find(
+          (m) =>
+            m &&
+            m.role === 'user' &&
+            typeof m.content === 'string' &&
+            m.content.trim() !== ''
+        )
+
+      if (lastUser) {
+        message = lastUser.content
+      }
+
+      // כל מה שלפני כן נחשב להיסטוריה
+      history = messagesFromClient
+        .slice(0, -1)
+        .filter(
+          (m) =>
+            m &&
+            typeof m.role === 'string' &&
+            typeof m.content === 'string'
+        )
+        .map((m) => ({
+          role: m.role,
+          content: m.content as string
+        }))
+    }
+
+    if (!message || !message.trim()) {
       return c.json({ error: 'הודעה ריקה' }, 400)
     }
 
-    // TODO: Get OpenAI API key from environment variables
-    // For now, return a placeholder response
-    // You need to add OPENAI_API_KEY to your wrangler.jsonc secrets
-    
-    const OPENAI_API_KEY = c.env.OPENAI_API_KEY || ''
-    
-    if (!OPENAI_API_KEY) {
-      return c.json({ 
-        response: '⚠️ מערכת התזונה עדיין בהקמה. בינתיים, אתה יכול לשאול שאלות ואני אענה עליהן ברגע שה-API Key יוגדר.\\n\\nכדי להפעיל את המערכת:\\n1. קבל OpenAI API Key\\n2. הוסף אותו ל-wrangler secrets\\n3. חבר את ה-GPT ID שלך'
-      })
+    const apiKey = c.env.OPENAI_API_KEY
+    if (!apiKey) {
+      const fallback =
+        '⚠️ מערכת התזונה עדיין לא הוגדרה במלואה.\n\n' +
+        'כדי להפעיל את הצאט התזונתי ב JumpFitPro:\n' +
+        '1. קבל OpenAI API Key.\n' +
+        '2. הוסף אותו כ secret בשם OPENAI_API_KEY.\n' +
+        '3. פרוס מחדש את הפרויקט.'
+
+      return c.json({ reply: fallback, response: fallback })
     }
 
-    // Get user data for context
-    const user = await c.env.DB.prepare(`
-      SELECT name, age, gender, weight_kg, target_weight_kg, height_cm, current_level
-      FROM users WHERE id = ?
-    `).bind(userId).first()
+    // פרטי משתמש אם יש userId
+    const userId = body.userId
+    let profile: any = null
 
-    // Build context for GPT
-    const userGender = user?.gender === 'male' ? 'זכר' : 'נקבה'
-    const systemMessage = `אתה מומחה תזונה ישראלי. המשתמש שלך הוא ${user?.name || 'משתמש'}:
-- גיל: ${user?.age || 'לא ידוע'}
-- מין: ${userGender}
-- משקל נוכחי: ${user?.weight_kg || 'לא ידוע'} ק"ג
-- משקל יעד: ${user?.target_weight_kg || 'לא ידוע'} ק"ג
-- רמת כושר: ${user?.current_level || 'לא ידוע'}
+    if (userId) {
+      try {
+        profile = await c.env.DB.prepare(
+          `
+          SELECT name, age, gender, weight_kg, target_weight_kg, height_cm, current_level
+          FROM users
+          WHERE id = ?
+        `
+        )
+          .bind(userId)
+          .first()
+      } catch (err) {
+        console.error('DB error in /api/nutrition/chat:', err)
+      }
+    }
 
-תן המלצות מותאמות אישית, מתכונים בעברית, וחשב קלוריות כשצריך.
-השתמש בשפה חמימה וידידותית.`
+    const genderText =
+      profile && profile.gender === 'male'
+        ? 'זכר'
+        : profile && profile.gender === 'female'
+        ? 'נקבה'
+        : 'לא ידוע'
 
-    // Call OpenAI API with proper UTF-8 encoding for Hebrew
+    const systemPrompt =
+      `אתה מומחה תזונה ישראלי. המשתמש שלך הוא ${
+        (profile && profile.name) || 'משתמש'
+      }:\n` +
+      `- גיל: ${(profile && profile.age) ?? 'לא ידוע'}\n` +
+      `- מין: ${genderText}\n` +
+      `- משקל נוכחי: ${
+        (profile && profile.weight_kg) ?? 'לא ידוע'
+      } ק"ג\n` +
+      `- משקל יעד: ${
+        (profile && profile.target_weight_kg) ?? 'לא ידוע'
+      } ק"ג\n` +
+      `- רמת כושר: ${
+        (profile && profile.current_level) ?? 'לא ידוע'
+      }\n\n` +
+      'תן המלצות תזונה מותאמות אישית, מתכונים בעברית, וחשב קלוריות כשצריך.\n' +
+      'השתמש בשפה חמה, ברורה ופשוטה.'
+
+    const openaiMessages = [
+      { role: 'system', content: systemPrompt },
+      ...(Array.isArray(history) ? history : []).map((m: any) => ({
+        role:
+          m.role === 'user' ||
+          m.role === 'assistant' ||
+          m.role === 'system'
+            ? m.role
+            : 'user',
+        content: String(m.content ?? '')
+      })),
+      {
+        role: 'user',
+        content: String(message)
+      }
+    ]
+
     const requestBody = JSON.stringify({
-      model: 'gpt-4o-mini', // Cost-effective model that handles Hebrew well
-      messages: [
-        { role: 'system', content: systemMessage },
-        ...(history || []),
-        { role: 'user', content: message }
-      ],
+      model: 'gpt-4.1-mini',
+      messages: openaiMessages,
       temperature: 0.7,
       max_tokens: 1000
     })
-    
-    // Use TextEncoder to properly encode the body as UTF-8
-    const encoder = new TextEncoder()
-    const encodedBody = encoder.encode(requestBody)
-    
+
+    // שים לב: שולחים מחרוזת רגילה, בלי TextEncoder ובלי Uint8Array
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
       },
-      body: encodedBody
+      body: requestBody
     })
 
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.statusText}`)
+      const errText = await response.text()
+      console.error('OpenAI API error:', errText)
+      const genericError =
+        'מצטער, קרתה שגיאה בזמן יצירת תשובת התזונה. נסה שוב מאוחר יותר.'
+      return c.json({ response: genericError, reply: genericError })
     }
 
-    const data = await response.json() as { choices: Array<{ message?: { content?: string } }> }
-    const gptResponse = data.choices[0]?.message?.content || 'לא הצלחתי לקבל תשובה'
+    const data = (await response.json()) as {
+      choices: Array<{ message?: { content?: string } }>
+    }
 
-    return c.json({ 
+    const gptResponse =
+      data.choices[0]?.message?.content || 'לא הצלחתי לקבל תשובה'
+
+    return c.json({
       success: true,
-      response: gptResponse
+      response: gptResponse,
+      reply: gptResponse
     })
   } catch (error) {
     console.error('Nutrition chat error:', error)
     const errorMsg = String(error)
-    return c.json({ 
-      response: `מצטער, אירעה שגיאה בהתקשרות למערכת התזונה. \n\nהשגיאה: ${errorMsg}\n\nאנא נסה שוב מאוחר יותר.`
+    const msg =
+      `מצטער, אירעה שגיאה בהתקשרות למערכת התזונה. \n\nהשגיאה: ${errorMsg}\n\nאנא נסה שוב מאוחר יותר.`
+    return c.json({
+      response: msg,
+      reply: msg
     })
   }
 })
+
 
 // ========================================
 // API Routes - אימות (Authentication)

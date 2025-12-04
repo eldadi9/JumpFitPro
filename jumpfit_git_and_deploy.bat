@@ -2,7 +2,7 @@
 setlocal
 
 rem Change to project folder
-cd /d "C:\Users\Master_PC\Desktop\IPtv_projects\Projects Eldad\JumpFitPro\webapp_Main" || goto cd_error
+cd /d "C:\Users\Master_PC\Desktop\IPtv_projects\Projects Eldad\JumpFitPro_V1" || goto cd_error
 
 echo ============================
 echo Step 1: git pull from origin/main
