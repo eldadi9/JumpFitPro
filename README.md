@@ -18,6 +18,8 @@
 
 ## 🌐 כתובות URL
 
+https://jumpfitpro.pages.dev/
+
 ### סביבת פיתוח (Sandbox)
 - **דף הבית:** https://3000-ibj123ueozhz9xpxg5g17-c81df28e.sandbox.novita.ai
 - **API Base URL:** https://3000-ibj123ueozhz9xpxg5g17-c81df28e.sandbox.novita.ai/api
