@@ -1,78 +1,212 @@
 @echo off
 setlocal
+chcp 65001 >nul
+color 0A
+
+rem ============================================
+rem JumpFitPro - Manager Script
+rem ============================================
 
 rem Change to project folder
 cd /d "C:\Users\Master_PC\Desktop\IPtv_projects\Projects Eldad\JumpFitPro_V1" || goto cd_error
 
-echo ============================
-echo Step 1: git pull from origin/main
-echo ============================
-git pull origin main
-IF ERRORLEVEL 1 (
-    echo git pull failed. Fix git issues and try again.
-    pause
-    goto end
-)
-
+:menu
+cls
 echo.
-echo ============================
-echo Choose action:
-echo [1] Local dev (npm run dev)
-echo [2] Deploy to Cloudflare Pages
-echo ============================
-set /p choice=Type 1 or 2 and press Enter: 
-
-if "%choice%"=="1" goto dev
-if "%choice%"=="2" goto deploy
-
-echo Invalid choice.
-pause
-goto end
-
-:dev
+echo ╔══════════════════════════════════════════════════════════╗
+echo ║         JumpFitPro - Manager Script                      ║
+echo ╚══════════════════════════════════════════════════════════╝
 echo.
-echo Running local dev: npm run dev
-echo Press Ctrl+C to stop the dev server.
-call npm run dev
-goto end
-
-
-:deploy
+echo Choose an option:
 echo.
-echo Step 2: build
+echo [1] Local - Run local development server
+echo     - Build the project
+echo     - Migrate local DB
+echo     - Start dev server (localhost:3000)
+echo.
+echo [2] Git - Push to GitHub
+echo     - Git add + commit
+echo     - Push to https://github.com/eldadi9/JumpFitPro.git
+echo.
+echo [3] Cloudflare - Deploy to production
+echo     - Build the project
+echo     - Migrate production DB
+echo     - Deploy to Cloudflare Pages
+echo.
+echo [0] Exit
+echo.
+set /p choice=Enter number (1/2/3/0): 
+
+if "%choice%"=="1" goto local
+if "%choice%"=="2" goto git
+if "%choice%"=="3" goto cloudflare
+if "%choice%"=="0" goto end
+echo.
+echo Invalid choice! Please try again.
+timeout /t 2 >nul
+goto menu
+
+:local
+cls
+echo.
+echo ╔══════════════════════════════════════════════════════════╗
+echo ║  Option 1: Run Local Development Server                  ║
+echo ╚══════════════════════════════════════════════════════════╝
+echo.
+
+echo Step 1: Building the project...
 call npm run build
 IF ERRORLEVEL 1 (
-    echo build failed.
+    echo.
+    echo ❌ Build failed!
+    echo.
     pause
-    goto end
+    goto menu
 )
 
 echo.
-echo Step 3: D1 migrations (remote)
-call npx wrangler d1 migrations apply rope-fitness-db --remote
+echo ✅ Build completed successfully!
+echo.
+
+echo Step 2: Migrating local DB...
+call npm run db:migrate:local
 IF ERRORLEVEL 1 (
-    echo D1 migrations failed.
-    pause
-    goto end
+    echo.
+    echo ⚠️  DB migration failed (maybe already ran). Continuing...
 )
 
 echo.
-echo Step 4: deploy to Cloudflare Pages
-call npx wrangler pages deploy --commit-message "manual deploy" --commit-dirty=true
+echo Step 3: Starting dev server with Wrangler...
+echo.
+echo ═══════════════════════════════════════════════════════════
+echo   Server will run on: http://localhost:3000/
+echo   Press Ctrl+C to stop the server
+echo ═══════════════════════════════════════════════════════════
+echo.
+call npm run dev:sandbox
 IF ERRORLEVEL 1 (
-    echo deploy failed.
+    echo.
+    echo ❌ Dev server failed to start!
+    echo.
     pause
-    goto end
+    goto menu
+)
+pause
+goto menu
+
+:git
+cls
+echo.
+echo ╔══════════════════════════════════════════════════════════╗
+echo ║  Option 2: Push to GitHub                                ║
+echo ╚══════════════════════════════════════════════════════════╝
+echo.
+
+echo Step 1: Checking Git status...
+git status
+echo.
+
+echo Step 2: Adding files to Git...
+git add .
+IF ERRORLEVEL 1 (
+    echo.
+    echo ❌ Git add failed!
+    pause
+    goto menu
+)
+echo ✅ Files added to staging
+
+echo.
+echo Step 3: Committing changes...
+set /p commit_msg=Enter commit message (or press Enter for default): 
+if "%commit_msg%"=="" set commit_msg=Auto update %DATE% %TIME%
+
+git commit -m "%commit_msg%"
+IF ERRORLEVEL 1 (
+    echo.
+    echo ⚠️  No changes to commit or commit failed. Continuing...
 )
 
 echo.
-echo Done. Deploy finished successfully.
+echo Step 4: Pushing to GitHub...
+echo Repository: https://github.com/eldadi9/JumpFitPro.git
+git push origin main
+IF ERRORLEVEL 1 (
+    echo.
+    echo ❌ Git push failed!
+    echo Check your internet connection or GitHub permissions.
+    pause
+    goto menu
+)
+
+echo.
+echo ✅ Successfully pushed to GitHub!
+echo.
+pause
+goto menu
+
+:cloudflare
+cls
+echo.
+echo ╔══════════════════════════════════════════════════════════╗
+echo ║  Option 3: Deploy to Cloudflare                          ║
+echo ╚══════════════════════════════════════════════════════════╝
+echo.
+
+echo ⚠️  This will deploy to production!
+set /p confirm=Are you sure? (y/n): 
+if /i not "%confirm%"=="y" (
+    echo Cancelled.
+    timeout /t 2 >nul
+    goto menu
+)
+
+echo.
+echo Step 1: Building the project...
+call npm run build
+IF ERRORLEVEL 1 (
+    echo.
+    echo ❌ Build failed!
+    pause
+    goto menu
+)
+echo ✅ Build completed successfully!
+
+echo.
+echo Step 2: Migrating production DB (remote)...
+call npm run db:migrate:prod
+IF ERRORLEVEL 1 (
+    echo.
+    echo ⚠️  DB migration failed. Continuing with deploy...
+)
+
+echo.
+echo Step 3: Deploying to Cloudflare Pages...
+call npm run deploy:prod
+IF ERRORLEVEL 1 (
+    echo.
+    echo ❌ Deploy failed!
+    pause
+    goto menu
+)
+
+echo.
+echo ✅ Successfully deployed to Cloudflare!
+echo.
+pause
+goto menu
+
+:cd_error
+echo.
+echo ❌ Error: Could not change to project directory.
+echo Check that the path is correct: C:\Users\Master_PC\Desktop\IPtv_projects\Projects Eldad\JumpFitPro_V1
 pause
 goto end
 
-:cd_error
-echo Failed to change directory to project folder.
-pause
-
 :end
+cls
+echo.
+echo Thank you for using JumpFitPro Manager!
+echo.
+timeout /t 2 >nul
 endlocal

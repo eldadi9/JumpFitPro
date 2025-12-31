@@ -940,67 +940,34 @@ app.get('/api/intensity-levels', async (c) => {
 // API Routes - תזונה (Nutrition)
 // ========================================
 
-/**
- * Chat with Nutrition GPT
- * מחבר בין הדשבורד לבין OpenAI
- */
 app.post('/api/nutrition/chat', async (c) => {
   try {
-    // ננסה לקרוא את ה body כ JSON, ואם נכשל נקבל אובייקט ריק
+    // ניסיון לקרוא את ה body כ JSON, ואם נכשל - אובייקט ריק
     let body: any = {}
     try {
       body = await c.req.json()
-    } catch {
+    } catch (e) {
       body = {}
     }
 
-    // פורמט ישן מהדשבורד
-    let message: string = typeof body.message === 'string' ? body.message : ''
-    let history: any[] = Array.isArray(body.history) ? body.history : []
+    // טקסט השאלה הראשי
+    let message: string =
+      typeof body.message === 'string' ? body.message : ''
 
-    // תמיכה בפורמט messages אם יגיע בעתיד
-    const messagesFromClient: any[] = Array.isArray(body.messages) ? body.messages : []
+    // היסטוריה מהקליינט אם יש
+    const history: any[] = Array.isArray(body.history) ? body.history : []
 
-    if (!message && messagesFromClient.length > 0) {
-      // ניקח את ההודעה האחרונה של המשתמש
-      const lastUser = [...messagesFromClient]
-        .reverse()
-        .find(
-          (m) =>
-            m &&
-            m.role === 'user' &&
-            typeof m.content === 'string' &&
-            m.content.trim() !== ''
-        )
-
-      if (lastUser) {
-        message = lastUser.content
-      }
-
-      // כל מה שלפני כן נחשב להיסטוריה
-      history = messagesFromClient
-        .slice(0, -1)
-        .filter(
-          (m) =>
-            m &&
-            typeof m.role === 'string' &&
-            typeof m.content === 'string'
-        )
-        .map((m) => ({
-          role: m.role,
-          content: m.content as string
-        }))
-    }
-
+    // אם אין הודעה בכלל
     if (!message || !message.trim()) {
-      return c.json({ error: 'הודעה ריקה' }, 400)
+      return c.json({ reply: 'הודעה ריקה', response: 'הודעה ריקה' }, 400)
     }
 
-    const apiKey = c.env.OPENAI_API_KEY
-    if (!apiKey) {
+    // מפתח OpenAI
+    const OPENAI_API_KEY = c.env.OPENAI_API_KEY || ''
+    if (!OPENAI_API_KEY) {
       const fallback =
         '⚠️ מערכת התזונה עדיין לא הוגדרה במלואה.\n\n' +
-        'כדי להפעיל את הצאט התזונתי ב JumpFitPro:\n' +
+        'כדי להפעיל את הצ׳אט התזונתי ב JumpFitPro:\n' +
         '1. קבל OpenAI API Key.\n' +
         '2. הוסף אותו כ secret בשם OPENAI_API_KEY.\n' +
         '3. פרוס מחדש את הפרויקט.'
@@ -1008,7 +975,7 @@ app.post('/api/nutrition/chat', async (c) => {
       return c.json({ reply: fallback, response: fallback })
     }
 
-    // פרטי משתמש אם יש userId
+    // דוחפים פרטי משתמש מה DB אם יש userId
     const userId = body.userId
     let profile: any = null
 
@@ -1050,26 +1017,35 @@ app.post('/api/nutrition/chat', async (c) => {
       `- רמת כושר: ${
         (profile && profile.current_level) ?? 'לא ידוע'
       }\n\n` +
-      'תן המלצות תזונה מותאמות אישית, מתכונים בעברית, וחשב קלוריות כשצריך.\n' +
-      'השתמש בשפה חמה, ברורה ופשוטה.'
+      `תן המלצות תזונה מותאמות אישית, מתכונים בעברית, וחשב קלוריות כשצריך.\n` +
+      `השתמש בשפה חמה, ברורה ופשוטה.`
 
+    // בניית רשימת ההודעות למודל
     const openaiMessages = [
       { role: 'system', content: systemPrompt },
-      ...(Array.isArray(history) ? history : []).map((m: any) => ({
-        role:
-          m.role === 'user' ||
-          m.role === 'assistant' ||
-          m.role === 'system'
-            ? m.role
-            : 'user',
-        content: String(m.content ?? '')
-      })),
+      ...history
+        .filter(
+          (m) =>
+            m &&
+            typeof m.role === 'string' &&
+            typeof m.content === 'string'
+        )
+        .map((m) => ({
+          role:
+            m.role === 'user' ||
+            m.role === 'assistant' ||
+            m.role === 'system'
+              ? m.role
+              : 'user',
+          content: String(m.content ?? '')
+        })),
       {
         role: 'user',
         content: String(message)
       }
     ]
 
+    // כאן משתמשים במחרוזת רגילה, בלי TextEncoder
     const requestBody = JSON.stringify({
       model: 'gpt-4.1-mini',
       messages: openaiMessages,
@@ -1077,12 +1053,11 @@ app.post('/api/nutrition/chat', async (c) => {
       max_tokens: 1000
     })
 
-    // שים לב: שולחים מחרוזת רגילה, בלי TextEncoder ובלי Uint8Array
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
+        'Content-Type': 'application/json; charset=utf-8',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
       },
       body: requestBody
     })
@@ -1090,32 +1065,34 @@ app.post('/api/nutrition/chat', async (c) => {
     if (!response.ok) {
       const errText = await response.text()
       console.error('OpenAI API error:', errText)
-      const genericError =
+      const msg =
         'מצטער, קרתה שגיאה בזמן יצירת תשובת התזונה. נסה שוב מאוחר יותר.'
-      return c.json({ response: genericError, reply: genericError })
+      return c.json({ reply: msg, response: msg })
     }
 
-    const data = (await response.json()) as {
-      choices: Array<{ message?: { content?: string } }>
-    }
+    const data = await response.json()
+    const gptResponse: string =
+      data &&
+      data.choices &&
+      data.choices[0] &&
+      data.choices[0].message &&
+      data.choices[0].message.content
+        ? data.choices[0].message.content
+        : 'לא הצלחתי לקבל תשובה מהמודל, נסה שוב.'
 
-    const gptResponse =
-      data.choices[0]?.message?.content || 'לא הצלחתי לקבל תשובה'
-
+    // מחזירים גם reply וגם response כדי להתאים לדשבורד
     return c.json({
       success: true,
-      response: gptResponse,
-      reply: gptResponse
+      reply: gptResponse,
+      response: gptResponse
     })
   } catch (error) {
     console.error('Nutrition chat error:', error)
     const errorMsg = String(error)
     const msg =
-      `מצטער, אירעה שגיאה בהתקשרות למערכת התזונה. \n\nהשגיאה: ${errorMsg}\n\nאנא נסה שוב מאוחר יותר.`
-    return c.json({
-      response: msg,
-      reply: msg
-    })
+      'מצטער, אירעה שגיאה פנימית במערכת התזונה. אם זה חוזר על עצמו, עדכן את מנהל המערכת.\n\n' +
+      `פרטי שגיאה: ${errorMsg}`
+    return c.json({ reply: msg, response: msg })
   }
 })
 
@@ -3567,6 +3544,37 @@ app.get('/dashboard', (c) => {
 
         <!-- Main Dashboard -->
         <main class="max-w-7xl mx-auto px-4 py-8">
+            <!-- Quick Actions -->
+            <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
+                <h3 class="text-xl font-bold text-gray-800 mb-4">פעולות מהירות</h3>
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4">
+                    <button onclick="window.location.href='/live-workout?user=${userId}'" class="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
+                        <i class="fas fa-fire ml-2"></i>
+                        אימון חי
+                    </button>
+                    <button onclick="showWorkoutForm()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
+                        <i class="fas fa-plus ml-2"></i>
+                        הוסף אימון
+                    </button>
+                    <button onclick="showCalorieCalculator()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
+                        <i class="fas fa-calculator ml-2"></i>
+                        חישוב קלוריות
+                    </button>
+                    <button onclick="window.location.href='/plans?user=${userId}'" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
+                        <i class="fas fa-list ml-2"></i>
+                        תכניות
+                    </button>
+                    <button onclick="window.location.href='/nutrition?user=${userId}'" class="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
+                        <i class="fas fa-utensils ml-2"></i>
+                        תזונה
+                    </button>
+                    <button onclick="window.location.href='/settings?user=${userId}'" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
+                        <i class="fas fa-cog ml-2"></i>
+                        הגדרות
+                    </button>
+                </div>
+            </div>
+
             <!-- Stats Cards -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
                 <div class="bg-white rounded-xl shadow-lg p-6">
@@ -3690,37 +3698,6 @@ app.get('/dashboard', (c) => {
                         קלוריות שבועיות
                     </h3>
                     <canvas id="caloriesChart"></canvas>
-                </div>
-            </div>
-
-            <!-- Quick Actions -->
-            <div class="bg-white rounded-xl shadow-lg p-6 mb-8">
-                <h3 class="text-xl font-bold text-gray-800 mb-4">פעולות מהירות</h3>
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4">
-                    <button onclick="window.location.href='/live-workout?user=${userId}'" class="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
-                        <i class="fas fa-fire ml-2"></i>
-                        אימון חי
-                    </button>
-                    <button onclick="showWorkoutForm()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
-                        <i class="fas fa-plus ml-2"></i>
-                        הוסף אימון
-                    </button>
-                    <button onclick="showCalorieCalculator()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
-                        <i class="fas fa-calculator ml-2"></i>
-                        חישוב קלוריות
-                    </button>
-                    <button onclick="window.location.href='/plans?user=${userId}'" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
-                        <i class="fas fa-list ml-2"></i>
-                        תכניות
-                    </button>
-                    <button onclick="window.location.href='/nutrition?user=${userId}'" class="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
-                        <i class="fas fa-utensils ml-2"></i>
-                        תזונה
-                    </button>
-                    <button onclick="window.location.href='/settings?user=${userId}'" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-4 sm:py-5 rounded-lg transition duration-300 text-base sm:text-lg">
-                        <i class="fas fa-cog ml-2"></i>
-                        הגדרות
-                    </button>
                 </div>
             </div>
             

@@ -1,7 +1,7 @@
 @echo off
 REM Start local dev server (Vite)
 
-cd /d "C:\Users\Master_PC\Desktop\IPtv_projects\Projects Eldad\JumpFitPro\webapp_Main" || goto cd_error
+cd /d "C:\Users\Master_PC\Desktop\IPtv_projects\Projects Eldad\JumpFitPro_V1" || goto cd_error
 
 echo.
 echo ================================
